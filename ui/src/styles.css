@@ -420,6 +420,13 @@ body {
 .modal-head .muted { color: var(--muted); font-weight: 400; }
 .modal-head button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
 .modal-sub { padding: 12px 18px; color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.settings-hierarchy { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.settings-hierarchy > span:first-child { font-weight: 600; color: var(--text); }
+.settings-hierarchy select {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 5px 9px; font-size: 13px; cursor: pointer;
+}
+.settings-hierarchy .muted { font-size: 11.5px; }
 .modal-loading { padding: 30px; color: var(--muted); }
 
 .settings-table { padding: 8px 12px; }

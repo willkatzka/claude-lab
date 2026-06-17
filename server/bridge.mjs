@@ -266,14 +266,34 @@ app.patch('/api/labs/:id', (req, res) => {
   const labs = loadLabs();
   const lab = labs.find((l) => l.id === req.params.id);
   if (!lab) return res.status(404).json({ error: 'no such lab' });
-  const { name, cwd } = req.body ?? {};
+  const { name, cwd, theme } = req.body ?? {};
   if (typeof name === 'string' && name.trim()) lab.name = name.trim();
   if (typeof cwd === 'string') {
     if (cwd && !isValidDir(cwd)) return res.status(400).json({ error: `working directory not found: ${cwd}` });
     lab.cwd = cwd;
   }
+  // Switch the lab's hierarchy theme and relabel existing agents to the new role
+  // names for their rank (custom names are preserved).
+  if (typeof theme === 'string' && THEMES[theme] && theme !== lab.theme) {
+    lab.theme = theme;
+    try {
+      const g = loadGraph(lab);
+      const roles = THEMES[theme].roles;
+      let changed = false;
+      for (const n of g.nodes) {
+        if (n.type === 'agent' && n.rank != null && roles[n.rank]) {
+          n.title = roles[n.rank];
+          n.role = `${theme}:${n.rank}`;
+          changed = true;
+        }
+      }
+      if (changed) saveGraph(lab, g);
+    } catch (e) {
+      console.error('theme relabel failed:', e.message);
+    }
+  }
   saveLabs(labs);
-  res.json({ ok: true, name: lab.name, cwd: lab.cwd || '' });
+  res.json({ ok: true, name: lab.name, cwd: lab.cwd || '', theme: lab.theme });
 });
 
 // Edit a node's title / description.

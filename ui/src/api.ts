@@ -204,6 +204,12 @@ export const saveAppSettings = (s: AppSettings): Promise<AppSettings> =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(s),
   }).then(j);
+export const setLabTheme = (id: string, theme: string): Promise<{ ok: boolean; theme: string }> =>
+  fetch(`/api/labs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme }),
+  }).then(j);
 export const setLabCwd = (id: string, cwd: string): Promise<{ ok: boolean }> =>
   fetch(`/api/labs/${id}`, {
     method: 'PATCH',
