@@ -357,11 +357,9 @@ body {
 
 /* Benchtop "agent thinking" animation — inline and text-sized, no pill/border,
    so it reads as part of the chat (like Claude Code). */
-.thinking { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; line-height: 1; color: var(--accent); }
+.thinking { display: inline-flex; align-items: center; font-size: 14px; line-height: 1; color: var(--accent); }
 .thinking-icon { width: 1.5em; height: 1.5em; flex: none; display: inline-flex; }
 .vessel-svg { width: 100%; height: 100%; }
-.thinking-dots { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; animation: thinking-pulse 1.4s ease-in-out infinite; }
-@keyframes thinking-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 
 .chat-input { padding: 10px 12px; border-top: 1px solid var(--border); }
 .chat-input-row { display: flex; gap: 6px; align-items: flex-end; }

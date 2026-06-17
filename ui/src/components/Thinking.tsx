@@ -117,7 +117,6 @@ export function Thinking() {
       <span className="thinking-icon">
         <VesselScene t={t} />
       </span>
-      <span className="thinking-dots">…</span>
     </span>
   );
 }
