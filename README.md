@@ -45,7 +45,21 @@ npm run desktop
 **Package a `.dmg`:**
 
 ```bash
-npm run dist:mac     # output in release/
+npm run dist:mac     # unsigned build → release/ (Gatekeeper warns on open)
+```
+
+**Signed + notarized `.dmg`** (for sharing — opens with no warning). Requires a
+**Developer ID Application** certificate in your keychain and notarization
+credentials in the environment, then:
+
+```bash
+# App Store Connect API key (recommended)
+export APPLE_API_KEY=/path/to/AuthKey_XXXX.p8
+export APPLE_API_KEY_ID=XXXXXXXXXX
+export APPLE_API_ISSUER=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# …or Apple ID:  APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+
+npm run dist:mac:signed     # signs, hardens, and notarizes → release/
 ```
 
 ## Architecture
