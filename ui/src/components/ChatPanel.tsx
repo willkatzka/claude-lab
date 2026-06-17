@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   branchNode,
+  decidePermission,
   delegateNode,
   getMessages,
   getSettings,
@@ -18,8 +19,12 @@ import { Thinking } from './Thinking';
 
 const LEAF_RANK = 4; // themes have 5 tiers (0..4)
 
-// A live streaming segment: either streamed prose, or a tool-activity line.
-type Seg = { kind: 'text'; text: string } | { kind: 'tool'; verb: string; detail: string; full: string };
+// A live streaming segment: streamed prose, a tool-activity line, or a pending
+// permission prompt (Allow / Always allow / Deny) the agent is waiting on.
+type Seg =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; verb: string; detail: string; full: string }
+  | { kind: 'perm'; id: string; verb: string; detail: string; full: string; decided?: 'allow' | 'allow_always' | 'deny' };
 
 // Deploy-suggestion results are cached per (session, reply text) so re-opening an
 // agent never re-runs the (token-costing) extraction; dismissed replies stay closed.
@@ -288,6 +293,10 @@ function ChatBlock({
           acc.push({ kind: 'tool', verb: t.verb, detail: t.detail, full: t.full });
           setSegs([...acc]);
         },
+        onPermission: (p) => {
+          acc.push({ kind: 'perm', id: p.id, verb: p.verb, detail: p.detail, full: p.full });
+          setSegs([...acc]);
+        },
         onUsage: (out) => setTokens(out),
         onDone: (d) => d.output && setTokens(d.output),
         onError: (e) => pushText('\n\n⚠ ' + e),
@@ -322,6 +331,17 @@ function ChatBlock({
   // `done` (partial reply kept). Bound to the Stop button and the Escape key.
   const stop = () => {
     if (labId && running) stopAgent(labId, node.id).catch(() => {});
+  };
+
+  // Answer a pending tool-permission prompt. Mutates the seg in place (so the
+  // running stream's setSegs([...acc]) keeps the decision) and unblocks the agent.
+  const decide = (id: string, decision: 'allow' | 'allow_always' | 'deny') => {
+    decidePermission(id, decision).catch(() => {});
+    setSegs((cur) => {
+      if (!cur) return cur;
+      for (const s of cur) if (s.kind === 'perm' && s.id === id) s.decided = decision;
+      return [...cur];
+    });
   };
 
   const delegate = async () => {
@@ -415,6 +435,25 @@ function ChatBlock({
                       {s.detail && <span className="activity-detail">{s.detail}</span>}
                     </button>
                     {expanded.has(i) && s.full && <pre className="activity-full">{s.full}</pre>}
+                  </div>
+                ) : s.kind === 'perm' ? (
+                  <div key={i} className={`perm-prompt${s.decided ? ' decided' : ''}`}>
+                    <div className="perm-ask">
+                      <span className="perm-verb">{s.verb}</span>
+                      {s.detail && <span className="perm-detail">{s.detail}</span>}
+                    </div>
+                    {s.full && s.full !== s.detail && <pre className="perm-full">{s.full}</pre>}
+                    {s.decided ? (
+                      <div className="perm-result">
+                        {s.decided === 'deny' ? '✕ Denied' : s.decided === 'allow_always' ? '✓ Always allowed' : '✓ Allowed'}
+                      </div>
+                    ) : (
+                      <div className="perm-actions">
+                        <button className="perm-btn allow" onClick={() => decide(s.id, 'allow')}>Allow</button>
+                        <button className="perm-btn always" onClick={() => decide(s.id, 'allow_always')}>Always allow</button>
+                        <button className="perm-btn deny" onClick={() => decide(s.id, 'deny')}>Deny</button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div key={i} className="stream-text">

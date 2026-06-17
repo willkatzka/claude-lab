@@ -131,6 +131,7 @@ export async function streamNodeMessage(
     onDelta: (text: string) => void;
     onTool?: (t: { tool: string; verb: string; detail: string; full: string }) => void;
     onUsage?: (output: number) => void;
+    onPermission?: (p: { id: string; tool: string; verb: string; detail: string; full: string }) => void;
     onDone?: (d: { reply: string; sessionId: string; output: number }) => void;
     onError?: (err: string) => void;
   },
@@ -165,6 +166,7 @@ export async function streamNodeMessage(
         reply?: string;
         sessionId?: string;
         error?: string;
+        id?: string;
       };
       try {
         obj = JSON.parse(line);
@@ -175,6 +177,8 @@ export async function streamNodeMessage(
       else if (obj.type === 'tool')
         handlers.onTool?.({ tool: obj.tool ?? '', verb: obj.verb ?? 'Working', detail: obj.detail ?? '', full: obj.full ?? '' });
       else if (obj.type === 'usage') handlers.onUsage?.(obj.output ?? 0);
+      else if (obj.type === 'permission')
+        handlers.onPermission?.({ id: obj.id ?? '', tool: obj.tool ?? '', verb: obj.verb ?? 'use a tool', detail: obj.detail ?? '', full: obj.full ?? '' });
       else if (obj.type === 'done')
         handlers.onDone?.({ reply: obj.reply ?? '', sessionId: obj.sessionId ?? '', output: obj.output ?? 0 });
       else if (obj.type === 'error') handlers.onError?.(obj.error ?? 'error');
@@ -185,6 +189,14 @@ export async function streamNodeMessage(
 // Stop a running agent turn (Stop button / Escape).
 export const stopAgent = (labId: string, nodeId: string): Promise<{ stopped: boolean }> =>
   fetch(`/api/labs/${labId}/nodes/${nodeId}/stop`, { method: 'POST' }).then(j);
+
+// Answer a parked tool-permission prompt.
+export const decidePermission = (id: string, decision: 'allow' | 'allow_always' | 'deny'): Promise<{ ok: boolean }> =>
+  fetch(`/api/permission`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, decision }),
+  }).then(j);
 
 // Extract delegatable follow-up tasks from an agent's reply → deploy-buttons.
 export const suggestDelegations = (

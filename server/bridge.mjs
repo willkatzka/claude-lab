@@ -66,6 +66,10 @@ const CHAT_MAX_TURNS = 1000;
 // Active streaming queries, keyed by `${labId}:${nodeId}` → AbortController, so a
 // Stop request can abort the running agent.
 const runningStreams = new Map();
+// Pending tool-permission prompts, keyed by a per-prompt id → a settle(decision)
+// function. The SDK's canUseTool callback parks here while the UI shows an
+// Allow / Always allow / Deny prompt; POST /api/permission resolves it.
+const pendingPerms = new Map();
 
 // Per-turn injection is disabled for 1:1 parity with Claude Code — the user's
 // message is sent verbatim. (STYLE_MARK is retained only so toChat still strips
@@ -812,8 +816,14 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
 
   const setting = lab.roleSettings?.[node.rank ?? 0] ?? DEFAULT_SETTING;
   const resuming = node.sessionId && !String(node.sessionId).startsWith('mock-');
-  const permRaw = node.permission || setting.permissionMode;
-  const permissionMode = permRaw === 'default' ? 'bypassPermissions' : permRaw;
+  // Honor the chosen mode verbatim (no more silent default→bypass). The modes
+  // that need a human decision — 'default' (ask on dangerous ops) and
+  // 'acceptEdits' (auto-accept edits, ask on the rest) — get a canUseTool
+  // handler that prompts inline. 'plan' (no execution), 'bypassPermissions'
+  // (allow all), 'dontAsk' (deny unapproved), and 'auto' (model classifier)
+  // are handled by the SDK with no human prompt.
+  const permissionMode = node.permission || setting.permissionMode;
+  const needsPrompt = permissionMode === 'default' || permissionMode === 'acceptEdits';
   // The PreToolUse hook fires with the FULL tool input — emit a rich activity
   // line to the stream (and log it) right as the agent reaches for each tool.
   const preToolUse = async (input) => {
@@ -836,6 +846,27 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
   const ac = new AbortController();
   runningStreams.set(streamKey, ac);
   let stopped = false;
+  // Permission prompt: for modes that ask, the SDK calls this before a gated
+  // tool runs. We emit a {type:'permission'} line and park until the UI POSTs a
+  // decision to /api/permission (or the run is stopped → auto-deny).
+  let permSeq = 0;
+  const canUseTool = async (toolName, input, opts) => {
+    if (ac.signal.aborted) return { behavior: 'deny', message: 'Stopped.' };
+    const id = `${streamKey}#${++permSeq}`;
+    const { verb, detail, full } = toolActivity(toolName, input);
+    send({ type: 'permission', id, tool: toolName, verb, detail, full });
+    return await new Promise((resolve) => {
+      const settle = (decision) => {
+        if (!pendingPerms.has(id)) return;
+        pendingPerms.delete(id);
+        if (decision === 'deny') resolve({ behavior: 'deny', message: 'Denied by operator.' });
+        else if (decision === 'allow_always') resolve({ behavior: 'allow', updatedInput: input, updatedPermissions: opts?.suggestions });
+        else resolve({ behavior: 'allow', updatedInput: input });
+      };
+      pendingPerms.set(id, settle);
+      ac.signal.addEventListener('abort', () => settle('deny'), { once: true });
+    });
+  };
   // With attachments, the prompt must be a structured user message (text + image
   // blocks) yielded as a one-shot async stream; otherwise a plain string.
   const styled = withStyle(userPrompt || 'Take a look at the attached image(s).');
@@ -864,6 +895,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         model: node.model || setting.model,
         effort: node.effort || setting.effort,
         permissionMode,
+        ...(needsPrompt ? { canUseTool } : {}),
         systemPrompt: CC_SYSTEM_PROMPT,
         mcpServers: { lab: readLogServer(lab.id) },
         maxTurns: CHAT_MAX_TURNS,
@@ -893,6 +925,8 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
     else send({ type: 'error', error: String(e?.message ?? e) });
   }
   runningStreams.delete(streamKey);
+  // Deny any prompt still parked for this stream (the query has ended).
+  for (const [id, settle] of pendingPerms) if (id.startsWith(`${streamKey}#`)) settle('deny');
   // Finalize — commit whatever was produced (partial on stop) and mark done.
   reply = (reply || acc).trim();
   try {
@@ -909,6 +943,15 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
   }
   send({ type: 'done', reply, sessionId, output: outTokens, stopped });
   res.end();
+});
+
+// Resolve a parked tool-permission prompt. decision: 'allow' | 'allow_always' | 'deny'.
+app.post('/api/permission', (req, res) => {
+  const { id, decision } = req.body ?? {};
+  const settle = pendingPerms.get(id);
+  if (!settle) return res.json({ ok: false });
+  settle(decision === 'deny' ? 'deny' : decision === 'allow_always' ? 'allow_always' : 'allow');
+  res.json({ ok: true });
 });
 
 // Stop a running agent turn (Stop button / Escape) by aborting its query. If no
