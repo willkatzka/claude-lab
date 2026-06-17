@@ -1,0 +1,626 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  branchNode,
+  delegateNode,
+  getMessages,
+  getSettings,
+  openInTerminal,
+  patchNode,
+  rewindNode,
+  stopAgent,
+  streamNodeMessage,
+  suggestDelegations,
+} from '../api';
+import { agentDisplay, EFFORT_OPTIONS, MODEL_CHOICES, modelLabel, normalizeModel } from '../types';
+import type { ChatMsg, GraphNode, RoleSetting } from '../types';
+import { Markdown } from './Markdown';
+import { Thinking } from './Thinking';
+
+const LEAF_RANK = 4; // themes have 5 tiers (0..4)
+
+// A live streaming segment: either streamed prose, or a tool-activity line.
+type Seg = { kind: 'text'; text: string } | { kind: 'tool'; verb: string; detail: string };
+
+// Deploy-suggestion results are cached per (session, reply text) so re-opening an
+// agent never re-runs the (token-costing) extraction; dismissed replies stay closed.
+type Suggest = { childRole: string; tasks: string[] };
+const suggestCache = new Map<string, Suggest | null>();
+const suggestDismissed = new Set<string>();
+const suggestKey = (sessionId: string | null | undefined, text: string) => `${sessionId ?? ''}|${text}`;
+
+function ChatBlock({
+  node,
+  labId,
+  roleSettings,
+}: {
+  node: GraphNode;
+  labId: string | null;
+  roleSettings: RoleSetting[] | null;
+}) {
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [draft, setDraft] = useState('');
+  const [attach, setAttach] = useState<{ url: string; mediaType: string; data: string }[]>([]);
+  const [sending, setSending] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+  const [delBrief, setDelBrief] = useState('');
+  const [delNote, setDelNote] = useState('');
+  const [copied, setCopied] = useState(-1);
+  const [busy, setBusy] = useState(false); // a rewind/branch is in flight
+  const [actNote, setActNote] = useState('');
+  const [segs, setSegs] = useState<Seg[] | null>(null); // live stream (text + tool activity), or null
+  const [tokens, setTokens] = useState(0); // running output-token count for the live turn
+  const [suggest, setSuggest] = useState<Suggest | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const suggestKeyRef = useRef(''); // cache key of the reply the current suggestions came from
+
+  const isMock = !!node.sessionId?.startsWith('mock-');
+  const hasSession = !!node.sessionId && !isMock; // a real, resumable session exists
+  const canChat = node.type === 'agent' && !isMock; // idle or live agents can chat
+  const canDelegate = node.type === 'agent' && node.rank != null && node.rank < LEAF_RANK;
+  const agentName = agentDisplay(node); // role + custom name, instead of "assistant"
+
+  // The model + effort this agent runs on: its own override, else the role default.
+  const roleSetting = roleSettings?.[node.rank ?? 0];
+  const [model, setModel] = useState(normalizeModel(node.model || roleSetting?.model));
+  const [effort, setEffort] = useState(node.effort || roleSetting?.effort || 'high');
+  useEffect(() => {
+    setModel(normalizeModel(node.model || roleSetting?.model));
+    setEffort(node.effort || roleSetting?.effort || 'high');
+  }, [node.model, node.effort, roleSetting?.model, roleSetting?.effort]);
+  const changeModel = (m: string) => {
+    setModel(m);
+    if (labId) patchNode(labId, node.id, { model: m });
+  };
+  const changeEffort = (e: string) => {
+    setEffort(e);
+    if (labId) patchNode(labId, node.id, { effort: e });
+  };
+
+  const copyMsg = (i: number, text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopied(i);
+    setTimeout(() => setCopied((c) => (c === i ? -1 : c)), 1200);
+  };
+
+  // Attach an image file (from paste or the picker) as a base64 data URL.
+  const addImage = (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result || '');
+      const data = url.split(',')[1] || '';
+      if (data) setAttach((a) => [...a, { url, mediaType: file.type, data }]);
+    };
+    reader.readAsDataURL(file);
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    const imgs = Array.from(e.clipboardData?.items ?? []).filter((it) => it.type.startsWith('image/'));
+    if (imgs.length) {
+      e.preventDefault();
+      imgs.forEach((it) => {
+        const f = it.getAsFile();
+        if (f) addImage(f);
+      });
+    }
+  };
+
+  // Rewind = edit & resend (on YOUR messages): drop this message and everything
+  // after it, and put its text back in the input so you can edit and re-send.
+  const rewindTo = async (i: number) => {
+    if (!labId || busy) return;
+    const text = msgs[i].text;
+    const keepUpTo = msgs[i - 1]?.uuid ?? ''; // history before this turn ('' => blank)
+    setBusy(true);
+    try {
+      await rewindNode(labId, node.id, keepUpTo);
+      setMsgs((m) => m.slice(0, i)); // truncate to before the edited message
+      setDraft(text); // back into the type bar for editing
+      setActNote('Rewound — edit and press Enter to re-send.');
+    } catch (e) {
+      setActNote('⚠ Rewind failed: ' + String(e));
+    } finally {
+      setBusy(false);
+      setTimeout(() => setActNote(''), 5000);
+    }
+  };
+
+  // Branch = re-ask in a new agent (on YOUR messages): fork the history before
+  // this turn into a new sibling agent and re-ask this message there.
+  const branchFrom = async (i: number) => {
+    if (!labId || busy) return;
+    const text = msgs[i].text;
+    const keepUpTo = msgs[i - 1]?.uuid ?? '';
+    setBusy(true);
+    try {
+      await branchNode(labId, node.id, keepUpTo, text);
+      setActNote('Branched — a new agent is re-answering this below in the graph.');
+    } catch (e) {
+      setActNote('⚠ Branch failed: ' + String(e));
+    } finally {
+      setBusy(false);
+      setTimeout(() => setActNote(''), 6000);
+    }
+  };
+
+  // Turn an agent's reply into deployable follow-up tasks. Cached per reply, so
+  // re-opening an agent shows the stored result instead of re-running extraction.
+  const fetchSuggest = async (text: string) => {
+    if (!labId || !canDelegate || !text) {
+      setSuggest(null);
+      return;
+    }
+    const key = suggestKey(node.sessionId, text);
+    suggestKeyRef.current = key;
+    if (suggestDismissed.has(key)) {
+      setSuggest(null);
+      return;
+    }
+    if (suggestCache.has(key)) {
+      setSuggest(suggestCache.get(key) ?? null);
+      return;
+    }
+    try {
+      const r = await suggestDelegations(labId, node.id, text);
+      const val: Suggest | null = r.childRole && r.suggestions.length ? { childRole: r.childRole, tasks: r.suggestions } : null;
+      suggestCache.set(key, val);
+      setSuggest(val);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Dismiss the deploy panel for the current reply (stays closed on re-open).
+  const dismissSuggest = () => {
+    if (suggestKeyRef.current) suggestDismissed.add(suggestKeyRef.current);
+    setSuggest(null);
+  };
+
+  // Load the transcript for a real session; mock demo nodes show brief→result;
+  // idle agents (no session yet) start as a blank chat.
+  useEffect(() => {
+    let on = true;
+    setSuggest(null);
+    (async () => {
+      let m: ChatMsg[] = [];
+      if (hasSession) {
+        try {
+          m = await getMessages(node.sessionId!);
+        } catch {
+          /* ignore */
+        }
+      } else if (isMock) {
+        m = [
+          { role: 'user', text: node.description },
+          ...(node.result ? [{ role: 'assistant', text: node.result }] : []),
+        ];
+      }
+      if (!on) return;
+      setMsgs(m);
+      // Don't extract suggestions mid-stream (e.g. when a fresh session id lands
+      // during the first turn) — send() fetches them once the reply completes.
+      const last = m[m.length - 1];
+      if (last && last.role === 'assistant' && !sending) fetchSuggest(last.text);
+    })();
+    return () => {
+      on = false;
+    };
+    // Reload when the session swaps too (a rewind forks onto a new session id).
+  }, [node.id, node.sessionId]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [msgs, sending, segs]);
+
+  // Esc stops a running turn (the input is disabled mid-run, so listen globally).
+  useEffect(() => {
+    if (!sending) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') stop();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sending]);
+
+  // A sub-agent that has confirmed a handoff plan and is paused for your OK.
+  const awaitingApproval = hasSession && node.status === 'waiting';
+
+  const send = async (override?: string) => {
+    const text = (override ?? draft).trim();
+    const imgs = override ? [] : attach;
+    if ((!text && imgs.length === 0) || !canChat || !labId || sending) return;
+    if (!override) {
+      setDraft('');
+      setAttach([]);
+    }
+    const shownText = text + (imgs.length ? `${text ? '\n' : ''}📎 ${imgs.length} image${imgs.length > 1 ? 's' : ''}` : '');
+    setMsgs((m) => [...m, { role: 'user', text: shownText }]);
+    setSending(true);
+    setSegs([]); // empty → shows the thinking flask until the first token/tool
+    setTokens(0);
+    setSuggest(null); // stale once a new turn starts
+    const acc: Seg[] = [];
+    // Append a text delta to the trailing text segment (or start one).
+    const pushText = (t: string) => {
+      const last = acc[acc.length - 1];
+      if (last && last.kind === 'text') last.text += t;
+      else acc.push({ kind: 'text', text: t });
+      setSegs([...acc]);
+    };
+    try {
+      await streamNodeMessage(labId, node.id, text, {
+        onDelta: pushText,
+        onTool: (t) => {
+          acc.push({ kind: 'tool', verb: t.verb, detail: t.detail });
+          setSegs([...acc]);
+        },
+        onUsage: (out) => setTokens(out),
+        onDone: (d) => d.output && setTokens(d.output),
+        onError: (e) => pushText('\n\n⚠ ' + e),
+      }, imgs.map((a) => ({ mediaType: a.mediaType, data: a.data })));
+      // Commit only the prose to the persisted transcript (tool lines are live-only).
+      const finalText = acc
+        .filter((s): s is Extract<Seg, { kind: 'text' }> => s.kind === 'text')
+        .map((s) => s.text)
+        .join('')
+        .trim();
+      setMsgs((m) => [...m, { role: 'assistant', text: finalText || '(no reply)' }]);
+      fetchSuggest(finalText);
+    } catch (e) {
+      // A fetch TypeError means the local agent server was unreachable (e.g. it
+      // restarted) — your message wasn't sent; say so plainly and keep the draft.
+      const msg =
+        e instanceof TypeError
+          ? '⚠ Lost connection to the local agent server (it may have restarted). Your message wasn’t sent — try again.'
+          : '⚠ ' + String(e);
+      setMsgs((m) => [...m, { role: 'assistant', text: msg }]);
+      if (!override) {
+        setDraft(text);
+        setAttach(imgs);
+      }
+    } finally {
+      setSegs(null);
+      setSending(false);
+    }
+  };
+
+  // Stop the running turn — aborts the agent server-side; the stream ends with a
+  // `done` (partial reply kept). Bound to the Stop button and the Escape key.
+  const stop = () => {
+    if (labId && sending) stopAgent(labId, node.id).catch(() => {});
+  };
+
+  const delegate = async () => {
+    const b = delBrief.trim();
+    if (!b || !labId) return;
+    await delegateNode(labId, node.id, b);
+    setDelBrief('');
+    setDelOpen(false);
+    setDelNote('Deploying… the agent will appear below in the graph.');
+    setTimeout(() => setDelNote(''), 6000);
+  };
+
+  // Deploy one sub-agent for a suggested task (the handoff protocol tunes + plans it).
+  const deployTask = async (task: string) => {
+    if (!labId) return;
+    await delegateNode(labId, node.id, task);
+    setSuggest((s) => {
+      const next = s ? { ...s, tasks: s.tasks.filter((t) => t !== task) } : s;
+      suggestCache.set(suggestKeyRef.current, next && next.tasks.length ? next : null);
+      return next;
+    });
+    setDelNote(`Deploying ${suggest?.childRole ?? 'agent'} → ${task}`);
+    setTimeout(() => setDelNote(''), 6000);
+  };
+  // Deploy one sub-agent per remaining suggested task at once.
+  const deployAll = async () => {
+    if (!labId || !suggest) return;
+    const tasks = suggest.tasks;
+    setSuggest(null);
+    suggestCache.set(suggestKeyRef.current, null);
+    setDelNote(`Deploying ${tasks.length} ${suggest.childRole}s — one per task…`);
+    for (const t of tasks) await delegateNode(labId, node.id, t);
+    setTimeout(() => setDelNote(''), 7000);
+  };
+
+  return (
+    <>
+      {canChat && (
+        <div className="chat-actions">
+          <label className="model-pick" title="Model this agent runs on">
+            <span>⚙</span>
+            <select value={model} onChange={(e) => changeModel(e.target.value)}>
+              {MODEL_CHOICES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="model-pick" title="Reasoning effort">
+            <span>◇</span>
+            <select value={effort} onChange={(e) => changeEffort(e.target.value)}>
+              {EFFORT_OPTIONS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+          </label>
+          {hasSession && (
+            <button onClick={() => openInTerminal(node.sessionId!)} title="Open this session in a terminal">
+              ⌬ Open in terminal
+            </button>
+          )}
+          {sending && (
+            <button className="stop-btn" title="Stop the agent (Esc)" onClick={stop}>
+              ■ Stop
+            </button>
+          )}
+          {awaitingApproval && (
+            <button
+              className="approve-btn"
+              disabled={sending}
+              onClick={() => send('Approved — proceed with the plan as confirmed.')}
+            >
+              ✓ Approve &amp; start
+            </button>
+          )}
+        </div>
+      )}
+      {awaitingApproval && (
+        <div className="approve-hint">Reviewed the plan? Approve to let this agent begin — or reply with changes.</div>
+      )}
+      {actNote && <div className="approve-hint">{actNote}</div>}
+      <div className="chat-msgs" ref={scrollRef}>
+        {msgs.map((m, i) => (
+          <div key={i} className={`msg ${m.role}`}>
+            <div className="msg-head">
+              <span className="msg-role">{m.role === 'assistant' ? agentName : m.role === 'user' ? 'You' : m.role}</span>
+              <div className="msg-tools">
+                <button className="msg-copy" title="Copy message" onClick={() => copyMsg(i, m.text)}>
+                  {copied === i ? '✓ copied' : '⧉ copy'}
+                </button>
+                {hasSession && m.uuid && m.role === 'user' && (
+                  <>
+                    <button
+                      className="msg-copy"
+                      title="Rewind to here — edit and re-send this message (drops everything after)"
+                      disabled={busy}
+                      onClick={() => rewindTo(i)}
+                    >
+                      ↩ rewind
+                    </button>
+                    <button
+                      className="msg-copy"
+                      title="Branch from here — re-ask this in a new agent, keeping this one intact"
+                      disabled={busy}
+                      onClick={() => branchFrom(i)}
+                    >
+                      ⎇ branch
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {m.role === 'assistant' ? <Markdown text={m.text} /> : <div className="msg-text">{m.text}</div>}
+          </div>
+        ))}
+        {segs !== null && (
+          <div className="msg assistant">
+            <div className="msg-head">
+              <span className="msg-role">{agentName}</span>
+              {tokens > 0 && <span className="msg-tokens">{tokens.toLocaleString()} tokens</span>}
+            </div>
+            {segs.length === 0 ? (
+              <Thinking />
+            ) : (
+              segs.map((s, i) =>
+                s.kind === 'tool' ? (
+                  <div key={i} className="activity">
+                    <span className="activity-verb">{s.verb}</span>
+                    {s.detail && <span className="activity-detail">{s.detail}</span>}
+                  </div>
+                ) : (
+                  <div key={i} className="stream-text">
+                    <Markdown text={s.text} />
+                  </div>
+                ),
+              )
+            )}
+            {/* the indicator keeps cycling at the end while more is coming */}
+            {segs.length > 0 && <Thinking />}
+          </div>
+        )}
+      </div>
+      <div className="chat-input">
+        {attach.length > 0 && (
+          <div className="attach-row">
+            {attach.map((a, i) => (
+              <div className="attach-thumb" key={i}>
+                <img src={a.url} alt="attachment" />
+                <button title="Remove" onClick={() => setAttach((arr) => arr.filter((_, j) => j !== i))}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="chat-input-row">
+          <button
+            className="attach-btn"
+            title="Attach an image"
+            disabled={!canChat || sending}
+            onClick={() => fileRef.current?.click()}
+          >
+            ＋
+          </button>
+          <input
+            value={draft}
+            disabled={!canChat || sending}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={onPaste}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') send();
+              if (e.key === 'Escape' && sending) stop();
+            }}
+            placeholder={
+              canChat
+                ? sending
+                  ? 'Esc to stop…'
+                  : 'Message this agent… (paste or ＋ to attach an image)'
+                : 'This is a demo agent'
+            }
+          />
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            Array.from(e.target.files ?? []).forEach(addImage);
+            e.target.value = '';
+          }}
+        />
+      </div>
+
+      {canDelegate && (
+        <div className="delegate">
+          {/* Deploy buttons from the agent's proposed next-steps — only once the
+              reply is fully done (never mid-stream, so they match the response). */}
+          {!sending && segs === null && suggest && suggest.tasks.length > 0 && (
+            <div className="deploy-suggest">
+              <div className="deploy-head">
+                <span>Deploy a {suggest.childRole} to…</span>
+                <button className="deploy-dismiss" title="Dismiss these suggestions" onClick={dismissSuggest}>
+                  ✕
+                </button>
+              </div>
+              {suggest.tasks.map((t) => (
+                <button key={t} className="deploy-btn" title={`Deploy a ${suggest.childRole} for this`} onClick={() => deployTask(t)}>
+                  <span className="deploy-plus">＋</span> {t}
+                </button>
+              ))}
+              {suggest.tasks.length > 1 && (
+                <button className="deploy-all" onClick={deployAll}>
+                  ⚡ Deploy {suggest.tasks.length} {suggest.childRole}s — one per task
+                </button>
+              )}
+            </div>
+          )}
+          {delOpen ? (
+            <div className="delegate-box">
+              <input
+                value={delBrief}
+                autoFocus
+                onChange={(e) => setDelBrief(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') delegate();
+                  if (e.key === 'Escape') setDelOpen(false);
+                }}
+                placeholder={`Task for a new ${suggest?.childRole ?? 'sub-agent'}…`}
+              />
+              <button className="primary" onClick={delegate}>
+                Deploy
+              </button>
+              <button onClick={() => setDelOpen(false)}>✕</button>
+            </div>
+          ) : (
+            <button className="delegate-btn" onClick={() => setDelOpen(true)}>
+              ＋ Deploy an agent for a custom task
+            </button>
+          )}
+          {delNote && <div className="delegate-note">{delNote}</div>}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ChatPanel({
+  pi,
+  subs,
+  labId,
+  width,
+  deployMode,
+  labelFor,
+  onClose,
+  activeChatId,
+  onFocusChat,
+}: {
+  pi: GraphNode | null;
+  subs: GraphNode[];
+  labId: string | null;
+  width: number;
+  deployMode: 'app' | 'terminal';
+  labelFor: (n: GraphNode) => string;
+  onClose: (id: string) => void;
+  activeChatId: string | null;
+  onFocusChat: (id: string) => void;
+}) {
+  const style = { width, flex: `0 0 ${width}px` } as const;
+  const [roleSettings, setRoleSettings] = useState<RoleSetting[] | null>(null);
+  useEffect(() => {
+    if (!labId) {
+      setRoleSettings(null);
+      return;
+    }
+    let on = true;
+    getSettings(labId)
+      .then((s) => on && setRoleSettings(s.roleSettings))
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, [labId]);
+
+  if (!pi && subs.length === 0) {
+    return (
+      <div className="chat empty" style={style}>
+        {deployMode === 'terminal'
+          ? 'Terminal deployment — click an agent to open it in your terminal (claude --resume).'
+          : 'Select the lead agent (top of the hierarchy) to open the main chat.'}
+      </div>
+    );
+  }
+  return (
+    <div className="chat" style={style}>
+      {pi && (
+        <div
+          className={`chat-main${activeChatId === pi.id ? ' active' : ''}`}
+          onMouseDownCapture={() => onFocusChat(pi.id)}
+        >
+          <div className="chat-title main sub-bar">
+            <span>🧪 {agentDisplay(pi)} · main</span>
+            <button title="Close" onClick={() => onClose(pi.id)}>
+              ✕
+            </button>
+          </div>
+          <ChatBlock node={pi} labId={labId} roleSettings={roleSettings} />
+        </div>
+      )}
+      {subs.length > 0 && (
+        <div className="chat-subs">
+          {subs.map((s) => (
+            <div
+              key={s.id}
+              className={`sub${activeChatId === s.id ? ' active' : ''}`}
+              onMouseDownCapture={() => onFocusChat(s.id)}
+            >
+              <div className="chat-title sub-bar">
+                <span>
+                  {labelFor(s)} <span className="sub-role">· {agentDisplay(s)}</span>
+                </span>
+                <button onClick={() => onClose(s.id)}>✕</button>
+              </div>
+              <ChatBlock node={s} labId={labId} roleSettings={roleSettings} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

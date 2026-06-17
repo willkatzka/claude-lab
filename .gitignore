@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+ui/node_modules/
+
+# build artifacts
+dist/
+dist-server/
+ui/dist/
+release/
+
+# live runtime data — labs, graphs, audit logs (private). The shipped seed is data-seed/
+data/
+
+# lab scratch (handoff docs written into working dirs)
+.claudelab/
+
+# local tooling / OS
+.claude/
+*.log
+.DS_Store

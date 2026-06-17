@@ -1,0 +1,20 @@
+{
+  "research": {
+    "name": "Research Lab",
+    "container": "Lab",
+    "noun": "research laboratory",
+    "roles": ["Principal Investigator", "Laboratory Manager", "Post Doc", "PhD Student", "Undergrad"]
+  },
+  "baseball": {
+    "name": "Baseball",
+    "container": "Team",
+    "noun": "baseball team",
+    "roles": ["Front Office", "General Manager", "Head Coach", "Captain", "Player"]
+  },
+  "startup": {
+    "name": "Entrepreneur",
+    "container": "Company",
+    "noun": "company",
+    "roles": ["CEO", "Partner", "Manager", "Analyst", "Intern"]
+  }
+}
