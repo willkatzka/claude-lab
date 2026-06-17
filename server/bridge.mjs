@@ -911,15 +911,29 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
   res.end();
 });
 
-// Stop a running agent turn (Stop button / Escape) by aborting its query.
+// Stop a running agent turn (Stop button / Escape) by aborting its query. If no
+// live query is registered, the node's "running" status is stale (e.g. a dropped
+// stream) — clear it to 'done' so the chat unblocks.
 app.post('/api/labs/:labId/nodes/:nodeId/stop', (req, res) => {
   const ac = runningStreams.get(`${req.params.labId}:${req.params.nodeId}`);
   if (ac) {
     ac.abort();
-    res.json({ stopped: true });
-  } else {
-    res.json({ stopped: false });
+    return res.json({ stopped: true });
   }
+  try {
+    const lab = loadLabs().find((l) => l.id === req.params.labId);
+    if (lab) {
+      const g = loadGraph(lab);
+      const node = g.nodes.find((n) => n.id === req.params.nodeId);
+      if (node && node.status === 'running') {
+        node.status = 'done';
+        saveGraph(lab, g);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  res.json({ stopped: false, cleared: true });
 });
 
 // Rewind (edit & resend): drop one of your messages and everything after it so

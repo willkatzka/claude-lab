@@ -59,6 +59,10 @@ function ChatBlock({
   const canChat = node.type === 'agent' && !isMock; // idle or live agents can chat
   const canDelegate = node.type === 'agent' && node.rank != null && node.rank < LEAF_RANK;
   const agentName = agentDisplay(node); // role + custom name, instead of "assistant"
+  // Busy if THIS client is streaming OR the agent is running server-side (a turn
+  // in flight, even one we didn't start). Blocks a second overlapping turn — the
+  // cause of the "hung" behavior — and keeps the input disabled while it works.
+  const running = sending || node.status === 'running';
 
   // The model + effort this agent runs on: its own override, else the role default.
   const roleSetting = roleSettings?.[node.rank ?? 0];
@@ -240,14 +244,14 @@ function ChatBlock({
 
   // Esc stops a running turn (the input is disabled mid-run, so listen globally).
   useEffect(() => {
-    if (!sending) return;
+    if (!running) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') stop();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sending]);
+  }, [running]);
 
   // A sub-agent that has confirmed a handoff plan and is paused for your OK.
   const awaitingApproval = hasSession && node.status === 'waiting';
@@ -255,7 +259,7 @@ function ChatBlock({
   const send = async (override?: string) => {
     const text = (override ?? draft).trim();
     const imgs = override ? [] : attach;
-    if ((!text && imgs.length === 0) || !canChat || !labId || sending) return;
+    if ((!text && imgs.length === 0) || !canChat || !labId || running) return;
     if (!override) {
       setDraft('');
       setAttach([]);
@@ -315,7 +319,7 @@ function ChatBlock({
   // Stop the running turn — aborts the agent server-side; the stream ends with a
   // `done` (partial reply kept). Bound to the Stop button and the Escape key.
   const stop = () => {
-    if (labId && sending) stopAgent(labId, node.id).catch(() => {});
+    if (labId && running) stopAgent(labId, node.id).catch(() => {});
   };
 
   const delegate = async () => {
@@ -439,7 +443,7 @@ function ChatBlock({
           <button
             className="attach-btn"
             title="Attach an image"
-            disabled={!canChat || sending}
+            disabled={!canChat || running}
             onClick={() => fileRef.current?.click()}
           >
             ＋
@@ -447,7 +451,7 @@ function ChatBlock({
           <textarea
             value={draft}
             rows={1}
-            disabled={!canChat || sending}
+            disabled={!canChat || running}
             onChange={(e) => {
               setDraft(e.target.value);
               // auto-grow upward (caps via CSS max-height, then scrolls)
@@ -461,12 +465,12 @@ function ChatBlock({
                 send();
                 (e.target as HTMLTextAreaElement).style.height = 'auto';
               }
-              if (e.key === 'Escape' && sending) stop();
+              if (e.key === 'Escape' && running) stop();
             }}
             placeholder={
               canChat
-                ? sending
-                  ? 'Esc to stop…'
+                ? running
+                  ? 'Agent is working… (Esc to stop)'
                   : 'Message this agent… (Enter to send, Shift+Enter for a new line)'
                 : 'This is a demo agent'
             }
@@ -522,15 +526,15 @@ function ChatBlock({
               ⌬ Open in terminal
             </button>
           )}
-          {sending && (
+          {running && (
             <button className="stop-btn" title="Stop the agent (Esc)" onClick={stop}>
               ■ Stop
             </button>
           )}
-          {awaitingApproval && (
+          {awaitingApproval && !running && (
             <button
               className="approve-btn"
-              disabled={sending}
+              disabled={running}
               onClick={() => send('Approved — proceed with the plan as confirmed.')}
             >
               ✓ Approve &amp; start
@@ -547,7 +551,7 @@ function ChatBlock({
         <div className="delegate">
           {/* Deploy buttons from the agent's proposed next-steps — only once the
               reply is fully done (never mid-stream, so they match the response). */}
-          {!sending && segs === null && suggest && suggest.tasks.length > 0 && (
+          {!running && segs === null && suggest && suggest.tasks.length > 0 && (
             <div className="deploy-suggest">
               <div className="deploy-head">
                 <span>Deploy a {suggest.childRole} to…</span>
