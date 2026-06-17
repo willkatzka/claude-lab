@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   branchNode,
   delegateNode,
@@ -170,6 +170,19 @@ function ChatBlock({
     }
   };
 
+  // On open, only RESTORE a cached/previously-shown suggestion for this reply —
+  // never re-run extraction. New suggestions come solely from a completed turn
+  // (send → fetchSuggest), so they never pop up spontaneously on a dormant chat.
+  const restoreSuggest = (text: string) => {
+    if (!canDelegate || !text) {
+      setSuggest(null);
+      return;
+    }
+    const key = suggestKey(node.sessionId, text);
+    suggestKeyRef.current = key;
+    setSuggest(suggestDismissed.has(key) ? null : suggestCache.get(key) ?? null);
+  };
+
   // Dismiss the deploy panel for the current reply (stays closed on re-open).
   const dismissSuggest = () => {
     if (suggestKeyRef.current) suggestDismissed.add(suggestKeyRef.current);
@@ -197,10 +210,10 @@ function ChatBlock({
       }
       if (!on) return;
       setMsgs(m);
-      // Don't extract suggestions mid-stream (e.g. when a fresh session id lands
-      // during the first turn) — send() fetches them once the reply completes.
+      // Only restore a cached suggestion on open — never extract here. New ones
+      // come only from a completed send, so they don't appear on dormant chats.
       const last = m[m.length - 1];
-      if (last && last.role === 'assistant' && !sending) fetchSuggest(last.text);
+      if (last && last.role === 'assistant') restoreSuggest(last.text);
     })();
     return () => {
       on = false;
@@ -563,6 +576,7 @@ export function ChatPanel({
 }) {
   const style = { width, flex: `0 0 ${width}px` } as const;
   const [roleSettings, setRoleSettings] = useState<RoleSetting[] | null>(null);
+  const [weights, setWeights] = useState<Record<string, number>>({}); // per-pane flex-grow
   useEffect(() => {
     if (!labId) {
       setRoleSettings(null);
@@ -577,6 +591,35 @@ export function ChatPanel({
     };
   }, [labId]);
 
+  // Drag the divider between two stacked chats to reallocate their heights.
+  const startVResize = (e: React.MouseEvent, topId: string, botId: string) => {
+    e.preventDefault();
+    const divider = e.currentTarget as HTMLElement;
+    const topEl = divider.previousElementSibling as HTMLElement | null;
+    const botEl = divider.nextElementSibling as HTMLElement | null;
+    if (!topEl || !botEl) return;
+    const startY = e.clientY;
+    const topH0 = topEl.offsetHeight;
+    const botH0 = botEl.offsetHeight;
+    const sumW = (weights[topId] ?? 1) + (weights[botId] ?? 1);
+    const MIN = 90;
+    const onMove = (ev: MouseEvent) => {
+      let dy = ev.clientY - startY;
+      dy = Math.max(MIN - topH0, Math.min(dy, botH0 - MIN));
+      const topH = topH0 + dy;
+      const wTop = (sumW * topH) / (topH0 + botH0);
+      setWeights((w) => ({ ...w, [topId]: wTop, [botId]: sumW - wTop }));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   if (!pi && subs.length === 0) {
     return (
       <div className="chat empty" style={style}>
@@ -586,41 +629,38 @@ export function ChatPanel({
       </div>
     );
   }
+  // Open chats as one vertical stack (lead first), with a drag-divider between each.
+  const panes = [...(pi ? [{ node: pi, main: true }] : []), ...subs.map((s) => ({ node: s, main: false }))];
   return (
     <div className="chat" style={style}>
-      {pi && (
-        <div
-          className={`chat-main${activeChatId === pi.id ? ' active' : ''}`}
-          onMouseDownCapture={() => onFocusChat(pi.id)}
-        >
-          <div className="chat-title main sub-bar">
-            <span>🧪 {agentDisplay(pi)} · main</span>
-            <button title="Close" onClick={() => onClose(pi.id)}>
-              ✕
-            </button>
-          </div>
-          <ChatBlock node={pi} labId={labId} roleSettings={roleSettings} />
-        </div>
-      )}
-      {subs.length > 0 && (
-        <div className="chat-subs">
-          {subs.map((s) => (
-            <div
-              key={s.id}
-              className={`sub${activeChatId === s.id ? ' active' : ''}`}
-              onMouseDownCapture={() => onFocusChat(s.id)}
-            >
-              <div className="chat-title sub-bar">
-                <span>
-                  {labelFor(s)} <span className="sub-role">· {agentDisplay(s)}</span>
-                </span>
-                <button onClick={() => onClose(s.id)}>✕</button>
-              </div>
-              <ChatBlock node={s} labId={labId} roleSettings={roleSettings} />
+      {panes.map((p, i) => (
+        <Fragment key={p.node.id}>
+          {i > 0 && (
+            <div className="h-divider" title="Drag to resize" onMouseDown={(e) => startVResize(e, panes[i - 1].node.id, p.node.id)} />
+          )}
+          <div
+            className={`${p.main ? 'chat-main' : 'sub'}${activeChatId === p.node.id ? ' active' : ''}`}
+            style={{ flexGrow: weights[p.node.id] ?? 1, flexBasis: 0, minHeight: 90 }}
+            onMouseDownCapture={() => onFocusChat(p.node.id)}
+          >
+            <div className={p.main ? 'chat-title main sub-bar' : 'chat-title sub-bar'}>
+              <span>
+                {p.main ? (
+                  <>🧪 {agentDisplay(p.node)} · main</>
+                ) : (
+                  <>
+                    {labelFor(p.node)} <span className="sub-role">· {agentDisplay(p.node)}</span>
+                  </>
+                )}
+              </span>
+              <button title="Close" onClick={() => onClose(p.node.id)}>
+                ✕
+              </button>
             </div>
-          ))}
-        </div>
-      )}
+            <ChatBlock node={p.node} labId={labId} roleSettings={roleSettings} />
+          </div>
+        </Fragment>
+      ))}
     </div>
   );
 }

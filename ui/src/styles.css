@@ -242,18 +242,23 @@ body {
 /* Dark base so each chat reads as a distinct card separated by gaps. */
 .chat {
   width: 400px; flex: 0 0 400px; border-left: 1px solid var(--border);
-  background: var(--bg); display: flex; flex-direction: column; min-height: 0; gap: 8px; padding: 8px;
+  background: var(--bg); display: flex; flex-direction: column; min-height: 0; padding: 8px;
 }
 .chat.empty { align-items: center; justify-content: center; color: var(--muted); padding: 24px; text-align: center; }
-.chat-main {
-  flex: 1 1 50%; display: flex; flex-direction: column; min-height: 0;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
-}
-.chat-subs { flex: 1 1 50%; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.sub {
+/* Each open chat is a flex pane; its height is driven by an inline flex-grow weight. */
+.chat-main, .sub {
   display: flex; flex-direction: column; min-height: 0;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
 }
+/* Draggable horizontal divider between stacked chats */
+.h-divider {
+  flex: 0 0 9px; cursor: row-resize; position: relative;
+}
+.h-divider::after {
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 38px; height: 3px; border-radius: 2px; background: var(--border); transition: background 0.12s;
+}
+.h-divider:hover::after, .h-divider:active::after { background: var(--accent); }
 
 .chat-title {
   padding: 10px 14px 10px 12px; font-weight: 600; font-size: 13px;
