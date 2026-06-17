@@ -6,6 +6,7 @@
   "description": "A desktop app that orchestrates Claude Code agents as a configurable hierarchy, shown as an interactive node graph.",
   "main": "electron/main.cjs",
   "scripts": {
+    "postinstall": "npm --prefix ui install",
     "spike": "tsx src/spike.ts",
     "spike:dry": "tsx src/spike.ts --dry",
     "bridge": "tsx server/bridge.mjs",

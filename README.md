@@ -24,9 +24,8 @@ Built on the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/clau
 ## Setup
 
 ```bash
-git clone <this-repo> && cd claude-lab
-npm install
-npm --prefix ui install
+git clone https://github.com/willkatzka/claude-lab && cd claude-lab
+npm install          # also installs the ui/ workspace via postinstall
 ```
 
 ## Run
