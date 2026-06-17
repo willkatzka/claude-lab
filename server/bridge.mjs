@@ -66,6 +66,12 @@ const CHAT_MAX_TURNS = 1000;
 // Active streaming queries, keyed by `${labId}:${nodeId}` → AbortController, so a
 // Stop request can abort the running agent.
 const runningStreams = new Map();
+// Authoritative "this node has a live turn right now" set, keyed `${labId}:${nodeId}`.
+// Every agent-running path (stream, agentTurn, delegate) registers here; the served
+// graph overlays status='running' for these so concurrent unsynchronized saveGraph
+// writes can't transiently clobber a busy node back to 'done'.
+const activeRuns = new Set();
+const runKey = (labId, nodeId) => `${labId}:${nodeId}`;
 // Pending tool-permission prompts, keyed by a per-prompt id → a settle(decision)
 // function. The SDK's canUseTool callback parks here while the UI shows an
 // Allow / Always allow / Deny prompt; POST /api/permission resolves it.
@@ -221,7 +227,13 @@ app.get('/api/labs/:id/graph', (req, res) => {
   const file = graphPath(lab);
   if (!existsSync(file)) return res.json({ nodes: [], edges: [] });
   try {
-    res.json(JSON.parse(readFileSync(file, 'utf8')));
+    const g = JSON.parse(readFileSync(file, 'utf8'));
+    // Overlay live run-state: any node with an active turn reads 'running',
+    // regardless of what the (race-prone) on-disk status says.
+    for (const n of g.nodes ?? []) {
+      if (activeRuns.has(runKey(lab.id, n.id))) n.status = 'running';
+    }
+    res.json(g);
   } catch {
     // The file may be mid-write during a live run; treat as transiently empty.
     res.json({ nodes: [], edges: [] });
@@ -676,25 +688,31 @@ async function agentTurn(lab, node, prompt) {
   };
   let reply = '';
   let sessionId = resuming ? node.sessionId : '';
-  const q = query({
-    prompt,
-    options: {
-      ...(resuming ? { resume: node.sessionId } : {}),
-      cwd: cwdFor(lab),
-      model: node.model || setting.model,
-      effort: node.effort || setting.effort,
-      permissionMode,
-      systemPrompt: CC_SYSTEM_PROMPT,
-      mcpServers: { lab: readLogServer(lab.id) },
-      maxTurns: CHAT_MAX_TURNS,
-      settingSources: CC_SETTING_SOURCES,
-      hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
-    },
-  });
-  for await (const m of q) {
-    if (m.session_id) sessionId = m.session_id;
-    if (m.type === 'assistant') reply += extractText(m.message);
-    if (m.type === 'result' && m.subtype === 'success') reply = m.result;
+  const key = runKey(lab.id, node.id);
+  activeRuns.add(key);
+  try {
+    const q = query({
+      prompt,
+      options: {
+        ...(resuming ? { resume: node.sessionId } : {}),
+        cwd: cwdFor(lab),
+        model: node.model || setting.model,
+        effort: node.effort || setting.effort,
+        permissionMode,
+        systemPrompt: CC_SYSTEM_PROMPT,
+        mcpServers: { lab: readLogServer(lab.id) },
+        maxTurns: CHAT_MAX_TURNS,
+        settingSources: CC_SETTING_SOURCES,
+        hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
+      },
+    });
+    for await (const m of q) {
+      if (m.session_id) sessionId = m.session_id;
+      if (m.type === 'assistant') reply += extractText(m.message);
+      if (m.type === 'result' && m.subtype === 'success') reply = m.result;
+    }
+  } finally {
+    activeRuns.delete(key);
   }
   return { reply: reply.trim(), sessionId };
 }
@@ -845,6 +863,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
   const streamKey = `${req.params.labId}:${req.params.nodeId}`;
   const ac = new AbortController();
   runningStreams.set(streamKey, ac);
+  activeRuns.add(streamKey);
   let stopped = false;
   // Permission prompt: for modes that ask, the SDK calls this before a gated
   // tool runs. We emit a {type:'permission'} line and park until the UI POSTs a
@@ -925,6 +944,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
     else send({ type: 'error', error: String(e?.message ?? e) });
   }
   runningStreams.delete(streamKey);
+  activeRuns.delete(streamKey);
   // Deny any prompt still parked for this stream (the query has ended).
   for (const [id, settle] of pendingPerms) if (id.startsWith(`${streamKey}#`)) settle('deny');
   // Finalize — commit whatever was produced (partial on stop) and mark done.
