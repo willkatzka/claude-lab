@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 
 // The Benchtop "agent thinking" animation, ported from the design source. Each
 // vessel forms from three dots, holds, then shatters back into three dots — looping
-// through five vessels while a lab-verb cycles. Inline, text-sized, no chrome.
+// through five vessels. Inline, text-sized, no chrome, no labels — just the tubes
+// + a trailing "…". Color follows currentColor so it tracks the app palette.
 
 const VESSELS = [
   { path: 'M50,34 L50,82 a10,10 0 0 0 20,0 L70,34', rim: [44, 34, 76, 34], cx: 60, cy: 58 }, // test tube
@@ -11,8 +12,6 @@ const VESSELS = [
   { path: 'M42,48 L42,88 a4,4 0 0 0 4,4 L74,92 a4,4 0 0 0 4,-4 L78,48', rim: [40, 48, 80, 48], cx: 60, cy: 70 }, // beaker
   { path: 'M53,32 L53,88 L49,94 L71,94 L67,88 L67,32', rim: [49, 32, 71, 32], cx: 60, cy: 62 }, // graduated cylinder
 ];
-const WORDS = ['Centrifuging', 'Pipetting', 'Sublimating', 'Titrating', 'Incubating', 'Distilling', 'Calibrating', 'Synthesizing'];
-const CREAM = '#F6F1E8';
 
 const clamp = (x: number) => Math.max(0, Math.min(1, x));
 const easeInOut = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -85,7 +84,7 @@ function VesselScene({ t, speed = 0.7 }: { t: number; speed?: number }) {
         <path
           d={V.path}
           fill="none"
-          stroke={CREAM}
+          stroke="currentColor"
           strokeWidth={5}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -93,15 +92,14 @@ function VesselScene({ t, speed = 0.7 }: { t: number; speed?: number }) {
           strokeDasharray={100}
           strokeDashoffset={dashoffset}
         />
-        <line x1={V.rim[0]} y1={V.rim[1]} x2={V.rim[2]} y2={V.rim[3]} stroke={CREAM} strokeWidth={5} strokeLinecap="round" opacity={clamp((100 - dashoffset) / 30)} />
+        <line x1={V.rim[0]} y1={V.rim[1]} x2={V.rim[2]} y2={V.rim[3]} stroke="currentColor" strokeWidth={5} strokeLinecap="round" opacity={clamp((100 - dashoffset) / 30)} />
       </g>
-      {dots.map((d, i) => (d.op > 0.02 && d.sc > 0.02 ? <circle key={i} cx={d.x} cy={d.y} r={6 * d.sc} fill={CREAM} opacity={d.op} /> : null))}
+      {dots.map((d, i) => (d.op > 0.02 && d.sc > 0.02 ? <circle key={i} cx={d.x} cy={d.y} r={6 * d.sc} fill="currentColor" opacity={d.op} /> : null))}
     </svg>
   );
 }
 
-export function Thinking({ label }: { label?: string }) {
-  const rotate = label === undefined;
+export function Thinking() {
   const [t, setT] = useState(0);
   const t0 = useRef(0);
   useEffect(() => {
@@ -114,18 +112,12 @@ export function Thinking({ label }: { label?: string }) {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
-  const word = rotate ? WORDS[Math.floor(t / 2600) % WORDS.length] : label;
   return (
     <span className="thinking">
       <span className="thinking-icon">
         <VesselScene t={t} />
       </span>
-      {word && (
-        <span className="thinking-label">
-          {word}
-          <span className="thinking-dots">…</span>
-        </span>
-      )}
+      <span className="thinking-dots">…</span>
     </span>
   );
 }

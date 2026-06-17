@@ -370,7 +370,7 @@ export default function App() {
                   </span>
                   {busyLabs[l.id] ? (
                     <span className="lab-busy" title="An agent in this lab is working">
-                      <Thinking label="" />
+                      <Thinking />
                     </span>
                   ) : (
                     l.container && <span className="lab-tag">{l.container}</span>
