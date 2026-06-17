@@ -101,27 +101,29 @@ const baseName = (p) => (typeof p === 'string' ? p.split('/').pop() : '');
 function toolActivity(tool, input = {}) {
   const t = String(tool || '');
   const file = baseName(input.file_path ?? input.path);
+  const path = input.file_path ?? input.path ?? '';
+  const cmd = String(input.command ?? '');
   switch (t) {
     case 'Edit':
     case 'MultiEdit':
-      return { verb: 'Edited', detail: file };
+      return { verb: 'Edited', detail: file, full: path };
     case 'Write':
-      return { verb: 'Wrote', detail: file };
+      return { verb: 'Wrote', detail: file, full: path };
     case 'Read':
-      return { verb: 'Read', detail: file };
+      return { verb: 'Read', detail: file, full: path };
     case 'Bash':
-      return { verb: 'Ran a command', detail: String(input.command ?? '').split('\n')[0].slice(0, 80) };
+      return { verb: 'Ran a command', detail: cmd.split('\n')[0].slice(0, 80), full: cmd.slice(0, 2000) };
     case 'Grep':
-      return { verb: 'Searched', detail: String(input.pattern ?? '').slice(0, 60) };
+      return { verb: 'Searched', detail: String(input.pattern ?? '').slice(0, 60), full: `${input.pattern ?? ''}${input.path ? ` in ${input.path}` : ''}` };
     case 'Glob':
-      return { verb: 'Globbed', detail: String(input.pattern ?? '').slice(0, 60) };
+      return { verb: 'Globbed', detail: String(input.pattern ?? '').slice(0, 60), full: String(input.pattern ?? '') };
     case 'WebFetch':
     case 'WebSearch':
-      return { verb: 'Searched the web', detail: String(input.query ?? input.url ?? '').slice(0, 60) };
+      return { verb: 'Searched the web', detail: String(input.query ?? input.url ?? '').slice(0, 60), full: String(input.query ?? input.url ?? '') };
     case 'TodoWrite':
-      return { verb: 'Updated the plan', detail: '' };
+      return { verb: 'Updated the plan', detail: '', full: '' };
     default:
-      return { verb: `Used ${t.replace(/^mcp__/, '')}`, detail: file };
+      return { verb: `Used ${t.replace(/^mcp__/, '')}`, detail: file, full: path };
   }
 }
 
@@ -287,12 +289,13 @@ app.patch('/api/labs/:id/nodes/:nodeId', (req, res) => {
   const g = loadGraph(lab);
   const node = g.nodes.find((n) => n.id === req.params.nodeId);
   if (!node) return res.status(404).json({ error: 'no such node' });
-  const { title, description, model, effort, name } = req.body ?? {};
+  const { title, description, model, effort, name, permission } = req.body ?? {};
   if (typeof title === 'string') node.title = title;
   if (typeof description === 'string') node.description = description;
   if (typeof model === 'string') node.model = model;
   if (typeof effort === 'string') node.effort = effort;
   if (typeof name === 'string') node.name = name;
+  if (typeof permission === 'string') node.permission = permission;
   saveGraph(lab, g);
   res.json({ ok: true, node });
 });
@@ -657,7 +660,8 @@ function extractText(message) {
 async function agentTurn(lab, node, prompt) {
   const setting = lab.roleSettings?.[node.rank ?? 0] ?? DEFAULT_SETTING;
   const resuming = node.sessionId && !String(node.sessionId).startsWith('mock-');
-  const permissionMode = setting.permissionMode === 'default' ? 'bypassPermissions' : setting.permissionMode;
+  const permRaw = node.permission || setting.permissionMode;
+  const permissionMode = permRaw === 'default' ? 'bypassPermissions' : permRaw;
   const preToolUse = async (input) => {
     const t = input?.tool_name;
     const ti = input?.tool_input ?? {};
@@ -808,15 +812,16 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
 
   const setting = lab.roleSettings?.[node.rank ?? 0] ?? DEFAULT_SETTING;
   const resuming = node.sessionId && !String(node.sessionId).startsWith('mock-');
-  const permissionMode = setting.permissionMode === 'default' ? 'bypassPermissions' : setting.permissionMode;
+  const permRaw = node.permission || setting.permissionMode;
+  const permissionMode = permRaw === 'default' ? 'bypassPermissions' : permRaw;
   // The PreToolUse hook fires with the FULL tool input — emit a rich activity
   // line to the stream (and log it) right as the agent reaches for each tool.
   const preToolUse = async (input) => {
     const t = input?.tool_name;
     const ti = input?.tool_input ?? {};
     if (t && t !== 'mcp__lab__read_log') {
-      const { verb, detail } = toolActivity(t, ti);
-      send({ type: 'tool', tool: t, verb, detail });
+      const { verb, detail, full } = toolActivity(t, ti);
+      send({ type: 'tool', tool: t, verb, detail, full });
       appendAudit(lab.id, { type: 'tool', agentId: node.id, role: node.title, tool: t, target: ti.file_path ?? ti.path ?? ti.command ?? '' });
     }
     return { continue: true };

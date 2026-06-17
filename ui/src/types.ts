@@ -15,6 +15,7 @@ export interface GraphNode {
   result?: string;
   model?: string; // per-agent model override (else the role default)
   effort?: string; // per-agent effort override (else the role default)
+  permission?: string; // per-agent permission override (else the role default)
   name?: string; // custom label shown after the role ("Role: Name")
 }
 export interface Edge {

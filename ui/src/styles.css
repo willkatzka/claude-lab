@@ -314,13 +314,19 @@ body {
 .stream-text + .stream-text .md { padding-top: 0; }
 
 /* Tool-activity line in the live stream (Claude Code style) */
-.activity {
-  display: flex; align-items: baseline; gap: 8px; font-size: 12.5px;
-  color: var(--muted); padding: 3px 2px; margin: 1px 0;
+.activity { font-size: 12.5px; color: var(--muted); margin: 1px 0; }
+.activity-row {
+  display: flex; align-items: baseline; gap: 7px; width: 100%; text-align: left;
+  background: none; border: none; padding: 3px 2px; cursor: pointer; color: inherit; font: inherit;
 }
+.activity-chevron { color: var(--accent); font-size: 10px; flex: none; width: 10px; }
 .activity-verb { color: var(--text); }
-.activity-verb::before { content: '⏺'; color: var(--accent); margin-right: 6px; font-size: 10px; }
 .activity-detail { font-family: var(--mono); font-size: 11.5px; opacity: 0.8; word-break: break-all; }
+.activity-full {
+  margin: 3px 0 4px 19px; padding: 7px 9px; background: #0c0e13; border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--mono); font-size: 11.5px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word; color: #cdd5e3; max-height: 220px; overflow: auto;
+}
 
 /* Benchtop "agent thinking" animation — inline and text-sized, no pill/border,
    so it reads as part of the chat (like Claude Code). */
@@ -331,13 +337,15 @@ body {
 .thinking-dots { color: #c96442; }
 
 .chat-input { padding: 10px 12px; border-top: 1px solid var(--border); }
-.chat-input-row { display: flex; gap: 6px; align-items: center; }
-.chat-input-row input {
+.chat-input-row { display: flex; gap: 6px; align-items: flex-end; }
+.chat-input-row textarea {
   flex: 1; padding: 9px 11px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  font-family: var(--font); font-size: 14px; line-height: 1.4;
+  resize: none; overflow-y: auto; max-height: 160px; min-height: 38px;
 }
 /* No browser focus ring — focus is shown by the green outline on the whole box. */
-.chat-input-row input:focus { outline: none; border-color: #10b981; }
+.chat-input-row textarea:focus { outline: none; border-color: #10b981; }
 .attach-btn {
   flex: none; width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
   background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); font-size: 16px;

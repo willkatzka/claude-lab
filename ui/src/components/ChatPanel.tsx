@@ -11,7 +11,7 @@ import {
   streamNodeMessage,
   suggestDelegations,
 } from '../api';
-import { agentDisplay, EFFORT_OPTIONS, MODEL_CHOICES, modelLabel, normalizeModel } from '../types';
+import { agentDisplay, EFFORT_OPTIONS, MODEL_CHOICES, modelLabel, normalizeModel, PERMISSION_OPTIONS } from '../types';
 import type { ChatMsg, GraphNode, RoleSetting } from '../types';
 import { Markdown } from './Markdown';
 import { Thinking } from './Thinking';
@@ -19,7 +19,7 @@ import { Thinking } from './Thinking';
 const LEAF_RANK = 4; // themes have 5 tiers (0..4)
 
 // A live streaming segment: either streamed prose, or a tool-activity line.
-type Seg = { kind: 'text'; text: string } | { kind: 'tool'; verb: string; detail: string };
+type Seg = { kind: 'text'; text: string } | { kind: 'tool'; verb: string; detail: string; full: string };
 
 // Deploy-suggestion results are cached per (session, reply text) so re-opening an
 // agent never re-runs the (token-costing) extraction; dismissed replies stay closed.
@@ -64,10 +64,13 @@ function ChatBlock({
   const roleSetting = roleSettings?.[node.rank ?? 0];
   const [model, setModel] = useState(normalizeModel(node.model || roleSetting?.model));
   const [effort, setEffort] = useState(node.effort || roleSetting?.effort || 'high');
+  const [permission, setPermission] = useState(node.permission || roleSetting?.permissionMode || 'bypassPermissions');
+  const [expanded, setExpanded] = useState<Set<number>>(new Set()); // expanded tool rows
   useEffect(() => {
     setModel(normalizeModel(node.model || roleSetting?.model));
     setEffort(node.effort || roleSetting?.effort || 'high');
-  }, [node.model, node.effort, roleSetting?.model, roleSetting?.effort]);
+    setPermission(node.permission || roleSetting?.permissionMode || 'bypassPermissions');
+  }, [node.model, node.effort, node.permission, roleSetting?.model, roleSetting?.effort, roleSetting?.permissionMode]);
   const changeModel = (m: string) => {
     setModel(m);
     if (labId) patchNode(labId, node.id, { model: m });
@@ -76,6 +79,16 @@ function ChatBlock({
     setEffort(e);
     if (labId) patchNode(labId, node.id, { effort: e });
   };
+  const changePermission = (p: string) => {
+    setPermission(p);
+    if (labId) patchNode(labId, node.id, { permission: p });
+  };
+  const toggleExpand = (i: number) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      n.has(i) ? n.delete(i) : n.add(i);
+      return n;
+    });
 
   const copyMsg = (i: number, text: string) => {
     navigator.clipboard?.writeText(text);
@@ -252,6 +265,7 @@ function ChatBlock({
     setSending(true);
     setSegs([]); // empty → shows the thinking flask until the first token/tool
     setTokens(0);
+    setExpanded(new Set());
     setSuggest(null); // stale once a new turn starts
     const acc: Seg[] = [];
     // Append a text delta to the trailing text segment (or start one).
@@ -265,7 +279,7 @@ function ChatBlock({
       await streamNodeMessage(labId, node.id, text, {
         onDelta: pushText,
         onTool: (t) => {
-          acc.push({ kind: 'tool', verb: t.verb, detail: t.detail });
+          acc.push({ kind: 'tool', verb: t.verb, detail: t.detail, full: t.full });
           setSegs([...acc]);
         },
         onUsage: (out) => setTokens(out),
@@ -339,53 +353,6 @@ function ChatBlock({
 
   return (
     <>
-      {canChat && (
-        <div className="chat-actions">
-          <label className="model-pick" title="Model this agent runs on">
-            <span>⚙</span>
-            <select value={model} onChange={(e) => changeModel(e.target.value)}>
-              {MODEL_CHOICES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="model-pick" title="Reasoning effort">
-            <span>◇</span>
-            <select value={effort} onChange={(e) => changeEffort(e.target.value)}>
-              {EFFORT_OPTIONS.map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                </option>
-              ))}
-            </select>
-          </label>
-          {hasSession && (
-            <button onClick={() => openInTerminal(node.sessionId!)} title="Open this session in a terminal">
-              ⌬ Open in terminal
-            </button>
-          )}
-          {sending && (
-            <button className="stop-btn" title="Stop the agent (Esc)" onClick={stop}>
-              ■ Stop
-            </button>
-          )}
-          {awaitingApproval && (
-            <button
-              className="approve-btn"
-              disabled={sending}
-              onClick={() => send('Approved — proceed with the plan as confirmed.')}
-            >
-              ✓ Approve &amp; start
-            </button>
-          )}
-        </div>
-      )}
-      {awaitingApproval && (
-        <div className="approve-hint">Reviewed the plan? Approve to let this agent begin — or reply with changes.</div>
-      )}
-      {actNote && <div className="approve-hint">{actNote}</div>}
       <div className="chat-msgs" ref={scrollRef}>
         {msgs.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
@@ -432,8 +399,16 @@ function ChatBlock({
               segs.map((s, i) =>
                 s.kind === 'tool' ? (
                   <div key={i} className="activity">
-                    <span className="activity-verb">{s.verb}</span>
-                    {s.detail && <span className="activity-detail">{s.detail}</span>}
+                    <button
+                      className="activity-row"
+                      onClick={() => s.full && toggleExpand(i)}
+                      title={s.full ? 'Show details' : undefined}
+                    >
+                      <span className="activity-chevron">{s.full ? (expanded.has(i) ? '▾' : '▸') : '·'}</span>
+                      <span className="activity-verb">{s.verb}</span>
+                      {s.detail && <span className="activity-detail">{s.detail}</span>}
+                    </button>
+                    {expanded.has(i) && s.full && <pre className="activity-full">{s.full}</pre>}
                   </div>
                 ) : (
                   <div key={i} className="stream-text">
@@ -469,20 +444,30 @@ function ChatBlock({
           >
             ＋
           </button>
-          <input
+          <textarea
             value={draft}
+            rows={1}
             disabled={!canChat || sending}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              // auto-grow upward (caps via CSS max-height, then scrolls)
+              e.target.style.height = 'auto';
+              e.target.style.height = `${e.target.scrollHeight}px`;
+            }}
             onPaste={onPaste}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') send();
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+                (e.target as HTMLTextAreaElement).style.height = 'auto';
+              }
               if (e.key === 'Escape' && sending) stop();
             }}
             placeholder={
               canChat
                 ? sending
                   ? 'Esc to stop…'
-                  : 'Message this agent… (paste or ＋ to attach an image)'
+                  : 'Message this agent… (Enter to send, Shift+Enter for a new line)'
                 : 'This is a demo agent'
             }
           />
@@ -499,6 +484,64 @@ function ChatBlock({
           }}
         />
       </div>
+
+      {canChat && (
+        <div className="chat-actions">
+          <label className="model-pick" title="Model this agent runs on">
+            <span>⚙</span>
+            <select value={model} onChange={(e) => changeModel(e.target.value)}>
+              {MODEL_CHOICES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="model-pick" title="Reasoning effort">
+            <span>◇</span>
+            <select value={effort} onChange={(e) => changeEffort(e.target.value)}>
+              {EFFORT_OPTIONS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="model-pick" title="Permission mode">
+            <span>⛨</span>
+            <select value={permission} onChange={(e) => changePermission(e.target.value)}>
+              {PERMISSION_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+          {hasSession && (
+            <button onClick={() => openInTerminal(node.sessionId!)} title="Open this session in a terminal">
+              ⌬ Open in terminal
+            </button>
+          )}
+          {sending && (
+            <button className="stop-btn" title="Stop the agent (Esc)" onClick={stop}>
+              ■ Stop
+            </button>
+          )}
+          {awaitingApproval && (
+            <button
+              className="approve-btn"
+              disabled={sending}
+              onClick={() => send('Approved — proceed with the plan as confirmed.')}
+            >
+              ✓ Approve &amp; start
+            </button>
+          )}
+        </div>
+      )}
+      {awaitingApproval && (
+        <div className="approve-hint">Reviewed the plan? Approve to let this agent begin — or reply with changes.</div>
+      )}
+      {actNote && <div className="approve-hint">{actNote}</div>}
 
       {canDelegate && (
         <div className="delegate">

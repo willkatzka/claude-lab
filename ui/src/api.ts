@@ -63,7 +63,7 @@ export const renameLab = (id: string, name: string): Promise<{ ok: boolean }> =>
 export const patchNode = (
   labId: string,
   nodeId: string,
-  fields: { title?: string; description?: string; model?: string; effort?: string; name?: string },
+  fields: { title?: string; description?: string; model?: string; effort?: string; name?: string; permission?: string },
 ): Promise<{ ok: boolean }> =>
   fetch(`/api/labs/${labId}/nodes/${nodeId}`, {
     method: 'PATCH',
@@ -129,7 +129,7 @@ export async function streamNodeMessage(
   prompt: string,
   handlers: {
     onDelta: (text: string) => void;
-    onTool?: (t: { tool: string; verb: string; detail: string }) => void;
+    onTool?: (t: { tool: string; verb: string; detail: string; full: string }) => void;
     onUsage?: (output: number) => void;
     onDone?: (d: { reply: string; sessionId: string; output: number }) => void;
     onError?: (err: string) => void;
@@ -160,6 +160,7 @@ export async function streamNodeMessage(
         tool?: string;
         verb?: string;
         detail?: string;
+        full?: string;
         output?: number;
         reply?: string;
         sessionId?: string;
@@ -172,7 +173,7 @@ export async function streamNodeMessage(
       }
       if (obj.type === 'delta') handlers.onDelta(obj.text ?? '');
       else if (obj.type === 'tool')
-        handlers.onTool?.({ tool: obj.tool ?? '', verb: obj.verb ?? 'Working', detail: obj.detail ?? '' });
+        handlers.onTool?.({ tool: obj.tool ?? '', verb: obj.verb ?? 'Working', detail: obj.detail ?? '', full: obj.full ?? '' });
       else if (obj.type === 'usage') handlers.onUsage?.(obj.output ?? 0);
       else if (obj.type === 'done')
         handlers.onDone?.({ reply: obj.reply ?? '', sessionId: obj.sessionId ?? '', output: obj.output ?? 0 });

@@ -21,6 +21,7 @@ export interface GraphNode {
   result?: string; // agent nodes: final text produced
   model?: string; // agent nodes: per-agent model override (else the role's default)
   effort?: string; // agent nodes: per-agent effort override (else the role's default)
+  permission?: string; // agent nodes: per-agent permission override (else the role's default)
   name?: string; // agent nodes: a custom label shown after the role ("Role: Name")
 }
 
