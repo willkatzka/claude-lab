@@ -54,21 +54,11 @@ const isValidDir = (p) => {
 // an agent behave like running `claude` in that folder. The appended style note
 // keeps replies conversational even when the session's own history has drifted
 // into dense status-report formatting.
-const CC_STYLE = [
-  "You're talking with your operator in a chat panel. Reply the way Claude Code does in a normal back-and-forth:",
-  'natural, direct, and to the point. Use light Markdown (a bit of bold, the occasional short list) only when it',
-  "genuinely helps. Don't default to multi-section status reports with emoji headers — write a report only when",
-  'the operator explicitly asks for one. Match the length of your answer to the question.',
-  'Work efficiently: scope your effort to the task. Once you have enough to answer or act, do it — don\'t keep',
-  "re-verifying, re-reading files you've already seen, or gathering more than the task needs. Don't add work that",
-  "wasn't asked for (extra checks, refactors, gold-plating). For a question, answer it; only dig deeper if it's actually required.",
-  "You are one agent in a lab of agents working the same project. Your teammates' actions, findings, and replies are",
-  'recorded in a shared lab log, and every sub-agent writes its plan and final verdict to a markdown file under',
-  '`.claudelab/handoffs/` in the working directory. When the operator asks what another agent (a sub-agent you',
-  'delegated to, or a teammate) found or did, call the read_log tool (mcp__lab__read_log) AND read the relevant',
-  "`.claudelab/handoffs/*.md` file for the full write-up before saying you don't have it.",
-].join(' ');
-const CC_SYSTEM_PROMPT = { type: 'preset', preset: 'claude_code', append: CC_STYLE };
+// 1:1 with Claude Code: the bare claude_code system prompt, no custom appends.
+// Behavior at a given model/effort matches `claude` run in the working dir.
+// (Lab features stay tool-level: read_log is discoverable via its own tool
+// description, not via system-prompt instructions that would shape behavior.)
+const CC_SYSTEM_PROMPT = { type: 'preset', preset: 'claude_code' };
 const CC_SETTING_SOURCES = ['user', 'project', 'local'];
 // Let agents run to completion like Claude Code — no low turn cap. This is a
 // runaway backstop only (a single chat message doing 1000 tool rounds is a loop).
@@ -77,20 +67,11 @@ const CHAT_MAX_TURNS = 1000;
 // Stop request can abort the running agent.
 const runningStreams = new Map();
 
-// A per-turn style reminder appended to the user's chat message. The system
-// prompt sits far behind a long history (and any report-formatted file the agent
-// just read), so it loses the tug-of-war over tone. This reminder rides at the
-// END of the turn — the most salient position — so it reliably wins. The marker
-// lets us strip it back out of the displayed transcript (see toChat).
+// Per-turn injection is disabled for 1:1 parity with Claude Code — the user's
+// message is sent verbatim. (STYLE_MARK is retained only so toChat still strips
+// the marker from any older transcripts that contain it.)
 const STYLE_MARK = '⟦lab:reply-style⟧';
-const STYLE_REMINDER =
-  `\n\n${STYLE_MARK}\n` +
-  '[Reply in a natural, conversational tone — plain prose, like a normal chat message. ' +
-  'Do NOT format your reply as a multi-section status report: no bold section headers, ' +
-  'no "## ⏳"-style or emoji headers, no numbered "verify when it lands" checklists — ' +
-  'EVEN IF a file you just read is written that way. Lead with a direct sentence and keep ' +
-  'it concise unless I explicitly ask for a detailed breakdown.]';
-const withStyle = (prompt) => `${prompt}${STYLE_REMINDER}`;
+const withStyle = (prompt) => prompt;
 
 // When a parent delegates, it recommends how to tune the sub-agent for the task.
 // Parse its <delegation-config> block → a model id + effort, and strip it from
