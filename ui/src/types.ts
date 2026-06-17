@@ -140,9 +140,26 @@ export const normalizeModel = (m?: string): string =>
 export const modelLabel = (id: string): string =>
   MODEL_CHOICES.find((c) => c.id === id)?.label ?? id;
 
-// An agent's display label: the role, plus its custom name when set.
-export const agentDisplay = (n: { title: string; name?: string }): string =>
-  n.name ? `${n.title}: ${n.name}` : n.title;
+// Positional, theme-independent agent labels: the lead is "Main Agent"; others
+// are "Sub Agent <rank>" with a sibling letter (a, b, …) when more than one agent
+// shares that rank (so a lone sub is "Sub Agent 1"; two under main → "1a"/"1b").
+type AgentLike = { id: string; type?: string; title: string; name?: string; rank?: number };
+const idNum = (id: string) => parseInt(String(id).split('-')[1] ?? '0', 10) || 0;
+export const agentRole = (n: AgentLike, agents: AgentLike[] = []): string => {
+  const rank = n.rank ?? 0;
+  if (rank === 0) return 'Main Agent';
+  const peers = agents
+    .filter((a) => (a.type ?? 'agent') === 'agent' && (a.rank ?? 0) === rank)
+    .sort((a, b) => idNum(a.id) - idNum(b.id));
+  const idx = peers.findIndex((a) => a.id === n.id);
+  const letter = peers.length > 1 && idx >= 0 ? String.fromCharCode(97 + idx) : '';
+  return `Sub Agent ${rank}${letter}`;
+};
+// The full display label: positional role + the custom name when set.
+export const agentDisplay = (n: AgentLike, agents: AgentLike[] = []): string => {
+  const role = agentRole(n, agents);
+  return n.name ? `${role}: ${n.name}` : role;
+};
 export const PERMISSION_OPTIONS: PermissionLevel[] = [
   'default',
   'acceptEdits',

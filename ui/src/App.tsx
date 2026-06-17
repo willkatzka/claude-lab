@@ -24,7 +24,7 @@ import {
   canPickFolder,
   pickFolder,
 } from './api';
-import type { Graph, GraphNode, LabInfo } from './types';
+import { agentDisplay, type Graph, type GraphNode, type LabInfo } from './types';
 
 export default function App() {
   const [labs, setLabs] = useState<LabInfo[]>([]);
@@ -271,6 +271,8 @@ export default function App() {
     },
     [graph],
   );
+  // Positional agent label ("Main Agent" / "Sub Agent 1a"), computed from the tree.
+  const agentLabel = useCallback((n: GraphNode) => agentDisplay(n, graph?.nodes ?? []), [graph]);
 
   const onAgentClick = (n: GraphNode) => {
     // Terminal deployment mode: open the agent in a terminal instead of the
@@ -415,6 +417,7 @@ export default function App() {
         width={chatWidth}
         deployMode={deployMode}
         labelFor={labelFor}
+        agentLabel={agentLabel}
         activeChatId={activeChatId}
         onFocusChat={setActiveChatId}
         onClose={(id) => {

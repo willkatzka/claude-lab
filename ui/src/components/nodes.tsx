@@ -16,6 +16,7 @@ export interface NodeData {
   onTerminal?: (n: GraphNode) => void;
   onRename?: (id: string, title: string) => void;
   onSetName?: (id: string, name: string) => void;
+  roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
 }
@@ -157,7 +158,7 @@ export function AgentNode({ data }: { data: NodeData }) {
       )}
       <div className="node-head">
         <span className="dot" style={{ background: STATUS_COLOR[n.status] ?? '#999' }} />
-        <span className="role">{n.title}</span>
+        <span className="role">{data.roleLabel ?? n.title}</span>
         <EditableName node={n} onSetName={data.onSetName} />
       </div>
       <div className="node-sub">{n.status}</div>

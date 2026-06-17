@@ -12,7 +12,7 @@ import {
 } from '@xyflow/react';
 import { layout } from '../layout';
 import { AgentNode, TaskNode } from './nodes';
-import type { Graph, GraphNode } from '../types';
+import { agentRole, type Graph, type GraphNode } from '../types';
 
 const nodeTypes = { agent: AgentNode, task: TaskNode };
 
@@ -76,6 +76,7 @@ export function Canvas({
             onTerminal,
             onRename,
             onSetName,
+            roleLabel: agentRole((rn.data as { node: GraphNode }).node, graph.nodes),
             chatActive: rn.id === activeChatId,
             chatOpen: openChatIds.includes(rn.id),
           },

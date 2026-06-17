@@ -11,7 +11,7 @@ import {
   streamNodeMessage,
   suggestDelegations,
 } from '../api';
-import { agentDisplay, EFFORT_OPTIONS, MODEL_CHOICES, modelLabel, normalizeModel, PERMISSION_OPTIONS } from '../types';
+import { EFFORT_OPTIONS, MODEL_CHOICES, modelLabel, normalizeModel, PERMISSION_OPTIONS } from '../types';
 import type { ChatMsg, GraphNode, RoleSetting } from '../types';
 import { Markdown } from './Markdown';
 import { Thinking } from './Thinking';
@@ -32,10 +32,12 @@ function ChatBlock({
   node,
   labId,
   roleSettings,
+  agentLabel,
 }: {
   node: GraphNode;
   labId: string | null;
   roleSettings: RoleSetting[] | null;
+  agentLabel: (n: GraphNode) => string;
 }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState('');
@@ -58,7 +60,7 @@ function ChatBlock({
   const hasSession = !!node.sessionId && !isMock; // a real, resumable session exists
   const canChat = node.type === 'agent' && !isMock; // idle or live agents can chat
   const canDelegate = node.type === 'agent' && node.rank != null && node.rank < LEAF_RANK;
-  const agentName = agentDisplay(node); // role + custom name, instead of "assistant"
+  const agentName = agentLabel(node); // positional label + custom name
   // Busy if THIS client is streaming OR the agent is running server-side (a turn
   // in flight, even one we didn't start). Blocks a second overlapping turn — the
   // cause of the "hung" behavior — and keeps the input disabled while it works.
@@ -607,6 +609,7 @@ export function ChatPanel({
   width,
   deployMode,
   labelFor,
+  agentLabel,
   onClose,
   activeChatId,
   onFocusChat,
@@ -617,6 +620,7 @@ export function ChatPanel({
   width: number;
   deployMode: 'app' | 'terminal';
   labelFor: (n: GraphNode) => string;
+  agentLabel: (n: GraphNode) => string;
   onClose: (id: string) => void;
   activeChatId: string | null;
   onFocusChat: (id: string) => void;
@@ -693,10 +697,10 @@ export function ChatPanel({
             <div className={p.main ? 'chat-title main sub-bar' : 'chat-title sub-bar'}>
               <span>
                 {p.main ? (
-                  <>🧪 {agentDisplay(p.node)} · main</>
+                  <>🧪 {agentLabel(p.node)} · main</>
                 ) : (
                   <>
-                    {labelFor(p.node)} <span className="sub-role">· {agentDisplay(p.node)}</span>
+                    {labelFor(p.node)} <span className="sub-role">· {agentLabel(p.node)}</span>
                   </>
                 )}
               </span>
@@ -704,7 +708,7 @@ export function ChatPanel({
                 ✕
               </button>
             </div>
-            <ChatBlock node={p.node} labId={labId} roleSettings={roleSettings} />
+            <ChatBlock node={p.node} labId={labId} roleSettings={roleSettings} agentLabel={agentLabel} />
           </div>
         </Fragment>
       ))}
