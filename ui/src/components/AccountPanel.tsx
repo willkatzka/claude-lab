@@ -32,11 +32,17 @@ export function AccountPanel() {
   const [data, setData] = useState<AccountData | null>(null);
   useEffect(() => {
     let on = true;
-    getAccount()
-      .then((d) => on && setData(d))
-      .catch(() => {});
+    const load = () =>
+      getAccount()
+        .then((d) => on && setData(d))
+        .catch(() => {});
+    load();
+    // Poll so the usage meters stay live as quota is consumed. The bridge caches
+    // for 30s, so 60s keeps it fresh without an extra ping query every refresh.
+    const id = setInterval(load, 60_000);
     return () => {
       on = false;
+      clearInterval(id);
     };
   }, []);
 
