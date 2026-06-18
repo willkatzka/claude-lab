@@ -191,16 +191,39 @@ function auditDigest(labId, limit = 80) {
     .join('\n');
 }
 
-// An in-process tool that lets an agent read the shared lab log on demand.
-const readLogServer = (labId) =>
+// Contents of every shared Log node (markdown files) in a lab, for read_log.
+function sharedLogFiles(lab) {
+  try {
+    const g = loadGraph(lab);
+    const logs = (g.nodes ?? []).filter((n) => n.type === 'log' && n.path);
+    const parts = [];
+    for (const l of logs) {
+      if (!existsSync(l.path)) continue;
+      const body = readFileSync(l.path, 'utf8').trim();
+      if (body) parts.push(`### Log: ${l.title}\n${body}`);
+    }
+    return parts.join('\n\n');
+  } catch {
+    return '';
+  }
+}
+
+// An in-process tool that lets an agent read the shared lab log on demand: the
+// shared Log files (markdown findings) plus the activity digest.
+const readLogServer = (lab) =>
   createSdkMcpServer({
     name: 'lab',
     tools: [
       tool(
         'read_log',
-        'Read the shared lab log: findings reported by every agent in this lab plus a trail of who did what. Call this to catch up on teammates’ work before answering.',
+        'Read the shared lab log: the shared findings log file(s) plus findings reported by every agent in this lab and a trail of who did what. Call this to catch up on teammates’ work before answering.',
         { limit: z.number().optional().describe('max recent events to read') },
-        async (args) => ({ content: [{ type: 'text', text: auditDigest(labId, args.limit ?? 80) }] }),
+        async (args) => {
+          const files = sharedLogFiles(lab);
+          const digest = auditDigest(lab.id, args.limit ?? 80);
+          const text = files ? `${files}\n\n--- activity ---\n${digest}` : digest;
+          return { content: [{ type: 'text', text }] };
+        },
       ),
     ],
   });
@@ -550,12 +573,13 @@ app.post('/api/labs', (req, res) => {
   const lab = { id, name, theme: useTheme, cwd: cwd || '', graph: `data/graph-${id}.json`, roleSettings: presets };
   labs.push(lab);
   saveLabs(labs);
-  // Seed the graph with a root task + an IDLE lead agent (no session). Nothing
-  // auto-runs — the lead is a blank chat until the user messages it.
+  // Seed the graph with the project DIRECTORY as the root unit + an IDLE lead
+  // agent (no session). Nothing auto-runs — the lead is a blank chat until the
+  // user messages it. The directory's description holds the lab's charge.
   try {
     const store = new Store(graphPath(lab));
-    const root = store.addTask('Top-level charge', (charge && charge.trim()) || `Objectives for ${name}`);
-    root.status = 'waiting';
+    const dirTitle = lab.cwd ? basename(lab.cwd) : name;
+    const root = store.addDirectory(dirTitle, (charge && charge.trim()) || `Objectives for ${name}`, lab.cwd || '');
     const lead = store.addAgent(`${useTheme}:0`, THEMES[useTheme].roles[0], root.description, 0);
     lead.status = 'waiting';
     store.addEdge(root.id, lead.id, 'assigned');
@@ -595,6 +619,45 @@ app.post('/api/labs/:id/assign', (req, res) => {
   if (!taskNodeId) return res.status(400).json({ error: 'taskNodeId required' });
   assignInProcess(lab, taskNodeId);
   res.json({ started: true });
+});
+
+// The directory "+" picker: create a typed child (agent | log) under a node.
+app.post('/api/labs/:id/nodes/:nodeId/spawn', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  const kind = req.body?.kind;
+  if (kind !== 'agent' && kind !== 'log') return res.status(400).json({ error: 'kind must be agent|log' });
+  try {
+    const theme = THEMES[lab.theme] ?? THEMES[DEFAULT_THEME];
+    const store = Store.open(graphPath(lab));
+    const parent = store.nodes.find((n) => n.id === req.params.nodeId);
+    if (!parent) return res.status(404).json({ error: 'no such node' });
+
+    if (kind === 'agent') {
+      // A new lead under the directory (or a peer under any node) — idle, no session.
+      const agent = store.addAgent(`${theme.id}:0`, theme.roles[0], parent.description || '', 0);
+      agent.status = 'waiting';
+      store.addEdge(parent.id, agent.id, 'assigned');
+      store.persist();
+      return res.json({ created: agent.id, type: 'agent' });
+    }
+
+    // kind === 'log': a shared markdown findings file in the project folder.
+    const rawName = String(req.body?.name || 'Shared Log').trim().slice(0, 48) || 'Shared Log';
+    const baseDir = lab.cwd && isValidDir(lab.cwd) ? join(lab.cwd, '.claudelab') : join(DATA_DIR, 'logs', lab.id);
+    mkdirSync(baseDir, { recursive: true });
+    const fileName = `${slugify(rawName) || 'log'}.md`;
+    const filePath = join(baseDir, fileName);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, `# ${rawName}\n\nShared findings log. Agents append findings here and read it via the read_log tool.\n`);
+    }
+    const log = store.addLog(rawName, `Shared log → ${filePath}`, filePath);
+    store.addEdge(parent.id, log.id, 'assigned');
+    store.persist();
+    res.json({ created: log.id, type: 'log', path: filePath });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 // Account + usage (the /usage panel data). Cached briefly; one tiny query.
@@ -698,7 +761,7 @@ async function agentTurn(lab, node, prompt) {
         effort: node.effort || setting.effort,
         permissionMode,
         systemPrompt: CC_SYSTEM_PROMPT,
-        mcpServers: { lab: readLogServer(lab.id) },
+        mcpServers: { lab: readLogServer(lab) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
@@ -733,7 +796,7 @@ app.post('/api/sessions/:sessionId/message', async (req, res) => {
     let reply = '';
     // Give the agent the read_log tool so it can pull the shared lab log
     // (teammates' findings) into its reasoning on demand. Allowlisted → no prompt.
-    const mcpServers = found ? { lab: readLogServer(found.lab.id) } : undefined;
+    const mcpServers = found ? { lab: readLogServer(found.lab) } : undefined;
     const allowedTools = found ? ['mcp__lab__read_log'] : [];
     const q = query({
       prompt: withStyle(prompt),
@@ -914,7 +977,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         permissionMode,
         ...(needsPrompt ? { canUseTool } : {}),
         systemPrompt: CC_SYSTEM_PROMPT,
-        mcpServers: { lab: readLogServer(lab.id) },
+        mcpServers: { lab: readLogServer(lab) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         includePartialMessages: true,
@@ -1191,5 +1254,31 @@ if (existsSync(uiDist)) {
     res.sendFile(join(uiDist, 'index.html'));
   });
 }
+
+// One-time migration: older labs rooted the graph in a 'task' node. Promote that
+// top-level task (one with no incoming edge) to a 'directory' node pointing at the
+// lab's cwd, so existing labs adopt the directory-as-root model. Idempotent.
+function migrateRootTasksToDirectories() {
+  for (const lab of loadLabs()) {
+    try {
+      const file = graphPath(lab);
+      if (!existsSync(file)) continue;
+      const g = readGraphFile(file);
+      const nodes = g.nodes ?? [];
+      const edges = g.edges ?? [];
+      if (nodes.some((n) => n.type === 'directory')) continue; // already migrated
+      const incoming = new Set(edges.map((e) => e.to));
+      const root = nodes.find((n) => n.type === 'task' && !incoming.has(n.id));
+      if (!root) continue;
+      root.type = 'directory';
+      root.path = lab.cwd || '';
+      if (lab.cwd) root.title = basename(lab.cwd);
+      atomicWriteJSON(file, { nodes, edges });
+    } catch (e) {
+      console.error(`migrate lab ${lab.id} failed:`, e.message);
+    }
+  }
+}
+migrateRootTasksToDirectories();
 
 app.listen(8787, () => console.log('Claude Lab bridge → http://localhost:8787'));

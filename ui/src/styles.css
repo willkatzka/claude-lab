@@ -219,6 +219,28 @@ body {
 .node.agent.chat-active { border-color: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.55); }
 .node.agent.chat-open { border-color: #6ea8fe; box-shadow: 0 0 0 2px rgba(110, 168, 254, 0.5); }
 .node.task { background: var(--task); border-color: #4a4030; border-style: dashed; }
+.node.directory { background: #1b2030; border-color: #3b486b; }
+.node.directory .picker-wrap .spawn-btn { opacity: 1; } /* root: always show the picker */
+.node.directory .node-sub.mono { font-family: var(--mono); text-transform: none; font-size: 10.5px; opacity: 0.8; word-break: break-all; }
+.node.log { background: #1d241c; border-color: #3c4a34; }
+.dir-ico, .log-ico { display: inline-block; vertical-align: middle; margin-right: 7px; }
+
+/* The directory "+" typed picker popover (Agent / Log / …). */
+.picker-wrap { position: absolute; top: -10px; right: -10px; z-index: 6; }
+.picker-wrap .spawn-btn { position: static; }
+.picker-menu {
+  position: absolute; top: 26px; right: 0; min-width: 136px; z-index: 20;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;
+  padding: 4px; display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.picker-menu button {
+  text-align: left; background: none; border: none; color: var(--text);
+  font: inherit; font-size: 12.5px; padding: 6px 9px; border-radius: 6px; cursor: pointer;
+}
+.picker-menu button:hover { background: var(--agent); }
+.picker-menu .picker-soon { color: var(--muted); cursor: default; opacity: 0.6; }
+.picker-menu .picker-soon:hover { background: none; }
 /* Head flows as one wrapping line: ● Role: Name */
 .node-head { font-weight: 600; line-height: 1.3; }
 .node-head .dot, .node-head .task-ico { display: inline-block; vertical-align: middle; margin-right: 7px; }

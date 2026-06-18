@@ -16,9 +16,54 @@ export interface NodeData {
   onTerminal?: (n: GraphNode) => void;
   onRename?: (id: string, title: string) => void;
   onSetName?: (id: string, name: string) => void;
+  onPick?: (n: GraphNode, kind: 'agent' | 'log') => void; // directory + picker
   roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
+}
+
+// The directory "+" : a small popover to add a typed child (Agent / Log / …).
+function PickerMenu({ node, onPick }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log') => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="picker-wrap">
+      <button
+        className="spawn-btn"
+        title="Add to this directory"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+      >
+        ＋
+      </button>
+      {open && (
+        <div className="picker-menu" onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick?.(node, 'agent');
+            }}
+          >
+            ⬡ Agent
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onPick?.(node, 'log');
+            }}
+          >
+            ▤ Log
+          </button>
+          <button className="picker-soon" disabled>
+            ＋ More soon
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Click-to-edit custom name for an agent (shown after the role as "Role: Name").
@@ -183,6 +228,39 @@ export function TaskNode({ data }: { data: NodeData }) {
         <span className="task-ico">📋</span>
         <EditableTitle node={n} onRename={data.onRename} className="ttitle" />
       </div>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+// The project directory — the root unit of a lab. Its "+" opens a typed picker
+// (Agent / Log / …). Shows the folder name + path.
+export function DirectoryNode({ data }: { data: NodeData }) {
+  const n = data.node;
+  return (
+    <div className="node directory">
+      <PickerMenu node={n} onPick={data.onPick} />
+      <div className="node-head">
+        <span className="dir-ico">🗂</span>
+        <span className="role">{n.title}</span>
+      </div>
+      <div className="node-sub mono">{n.path || 'no folder set'}</div>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+// A shared markdown findings log living in the project folder (fed to read_log).
+export function LogNode({ data }: { data: NodeData }) {
+  const n = data.node;
+  return (
+    <div className="node log">
+      <Handle type="target" position={Position.Top} />
+      <div className="node-head">
+        <span className="log-ico">▤</span>
+        <span className="role">{n.title}</span>
+      </div>
+      <div className="node-sub">shared log</div>
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

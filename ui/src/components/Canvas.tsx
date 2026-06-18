@@ -11,10 +11,10 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import { layout } from '../layout';
-import { AgentNode, TaskNode } from './nodes';
+import { AgentNode, TaskNode, DirectoryNode, LogNode } from './nodes';
 import { agentRole, type Graph, type GraphNode } from '../types';
 
-const nodeTypes = { agent: AgentNode, task: TaskNode };
+const nodeTypes = { agent: AgentNode, task: TaskNode, directory: DirectoryNode, log: LogNode };
 
 // Re-fit the view once custom nodes have been measured (and whenever the node
 // count changes — i.e. a new node was spawned). Status-only updates don't refit.
@@ -41,6 +41,7 @@ export function Canvas({
   onTerminal,
   onRename,
   onSetName,
+  onPick,
   onNodeContextMenu,
   activeChatId,
   openChatIds,
@@ -51,6 +52,7 @@ export function Canvas({
   onTerminal: (n: GraphNode) => void;
   onRename: (id: string, title: string) => void;
   onSetName: (id: string, name: string) => void;
+  onPick: (n: GraphNode, kind: 'agent' | 'log') => void;
   onNodeContextMenu: (n: GraphNode, x: number, y: number) => void;
   activeChatId: string | null;
   openChatIds: string[];
@@ -76,14 +78,18 @@ export function Canvas({
             onTerminal,
             onRename,
             onSetName,
-            roleLabel: agentRole((rn.data as { node: GraphNode }).node, graph.nodes),
+            onPick,
+            roleLabel:
+              (rn.data as { node: GraphNode }).node.type === 'agent'
+                ? agentRole((rn.data as { node: GraphNode }).node, graph.nodes)
+                : undefined,
             chatActive: rn.id === activeChatId,
             chatOpen: openChatIds.includes(rn.id),
           },
         } as Node;
       });
     });
-  }, [rfNodes, onSpawn, onTerminal, onRename, onSetName, activeChatId, openChatIds]);
+  }, [rfNodes, onSpawn, onTerminal, onRename, onSetName, onPick, activeChatId, openChatIds]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),

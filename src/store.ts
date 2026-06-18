@@ -35,7 +35,9 @@ export function readGraphFile(file: string): { nodes?: GraphNode[]; edges?: Edge
   throw new Error(`graph file unreadable (${file}): ${lastErr instanceof Error ? lastErr.message : 'empty'}`);
 }
 
-export type NodeType = 'agent' | 'task';
+// 'directory' is the root unit (the lab's working folder); 'log' is a shared
+// markdown findings file living in that folder; 'agent' and 'task' as before.
+export type NodeType = 'agent' | 'task' | 'directory' | 'log';
 export type Status = 'running' | 'waiting' | 'done';
 export type EdgeKind = 'delegates' | 'assigned';
 
@@ -53,6 +55,7 @@ export interface GraphNode {
   effort?: string; // agent nodes: per-agent effort override (else the role's default)
   permission?: string; // agent nodes: per-agent permission override (else the role's default)
   name?: string; // agent nodes: a custom label shown after the role ("Role: Name")
+  path?: string; // directory: folder path; log: markdown file path
 }
 
 export interface Edge {
@@ -113,6 +116,22 @@ export class Store {
       status: 'running',
       sessionId: null,
     };
+    this.nodes.push(n);
+    this.persist();
+    return n;
+  }
+
+  // The root unit: the lab's working folder.
+  addDirectory(title: string, description: string, path: string): GraphNode {
+    const n: GraphNode = { id: this.id('dir'), type: 'directory', title, description, status: 'waiting', sessionId: null, path };
+    this.nodes.push(n);
+    this.persist();
+    return n;
+  }
+
+  // A shared markdown findings log living in the project folder.
+  addLog(title: string, description: string, path: string): GraphNode {
+    const n: GraphNode = { id: this.id('log'), type: 'log', title, description, status: 'waiting', sessionId: null, path };
     this.nodes.push(n);
     this.persist();
     return n;

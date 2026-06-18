@@ -20,6 +20,7 @@ import {
   openInTerminal,
   patchNode,
   renameLab,
+  spawnUnder,
   setLabCwd,
   canPickFolder,
   pickFolder,
@@ -296,6 +297,15 @@ export default function App() {
     [labId],
   );
 
+  // Directory ＋ picker: create a typed child (Agent / Log) under the directory.
+  const onPick = useCallback(
+    (n: GraphNode, kind: 'agent' | 'log') => {
+      if (!labId) return;
+      spawnUnder(labId, n.id, kind).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+
   // Open (or re-open) an agent's session in a terminal via `claude --resume`.
   const onTerminal = useCallback((n: GraphNode) => {
     if (n.sessionId && !n.sessionId.startsWith('mock-')) openInTerminal(n.sessionId);
@@ -398,6 +408,7 @@ export default function App() {
               onTerminal={onTerminal}
               onRename={onRename}
               onSetName={onSetName}
+              onPick={onPick}
               onNodeContextMenu={onNodeContextMenu}
               activeChatId={activeChatId}
               openChatIds={[pi?.id, ...subs.map((s) => s.id)].filter((x): x is string => !!x)}

@@ -1,5 +1,5 @@
 // Mirrors the orchestrator's store schema (the graph contract).
-export type NodeType = 'agent' | 'task';
+export type NodeType = 'agent' | 'task' | 'directory' | 'log';
 export type Status = 'running' | 'waiting' | 'done';
 export type EdgeKind = 'delegates' | 'assigned';
 
@@ -17,6 +17,7 @@ export interface GraphNode {
   effort?: string; // per-agent effort override (else the role default)
   permission?: string; // per-agent permission override (else the role default)
   name?: string; // custom label shown after the role ("Role: Name")
+  path?: string; // directory: folder path; log: markdown file path
 }
 export interface Edge {
   from: string;

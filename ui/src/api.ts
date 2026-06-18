@@ -48,6 +48,18 @@ export const assignNode = (labId: string, taskNodeId: string, dry = false): Prom
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ taskNodeId, dry }),
   }).then(j);
+// The directory "+" picker: create a typed child under a node (agent | log).
+export const spawnUnder = (
+  labId: string,
+  nodeId: string,
+  kind: 'agent' | 'log',
+  name?: string,
+): Promise<{ created: string; type: string; path?: string }> =>
+  fetch(`/api/labs/${labId}/nodes/${nodeId}/spawn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, name }),
+  }).then(j);
 export const openInTerminal = (sessionId: string): Promise<{ opened: boolean }> =>
   fetch(`/api/sessions/${sessionId}/terminal`, { method: 'POST' }).then(j);
 
