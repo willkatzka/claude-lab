@@ -64,19 +64,24 @@ export function Canvas({
 }) {
   const { rfNodes, rfEdges } = useMemo(() => layout(graph), [graph]);
   const [nodes, setNodes] = useState<Node[]>([]);
+  // Nodes the user has manually dragged — only these stay pinned. Everything
+  // else follows dagre's fresh layout, so a parent re-centers over the
+  // barycenter of its children as the tree grows (instead of drifting off to
+  // the side because it was placed before its siblings existed).
+  const draggedRef = useRef<Set<string>>(new Set());
 
-  // Merge the latest graph into node state: KEEP user-dragged positions for
-  // nodes we already have, auto-place newly-spawned nodes via dagre, and refresh
-  // each node's data (status, handlers). This is what lets a drag "stick" across
-  // the 2s polling refresh.
+  // Merge the latest graph into node state: keep MANUALLY-DRAGGED positions,
+  // re-place everything else via dagre (centered over connections), and refresh
+  // each node's data (status, handlers).
   useEffect(() => {
     setNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]));
       return rfNodes.map((rn) => {
         const existing = prevById.get(rn.id);
+        const pinned = draggedRef.current.has(rn.id) && existing;
         return {
           ...rn,
-          position: existing ? existing.position : rn.position,
+          position: pinned ? existing.position : rn.position,
           data: {
             ...rn.data,
             onSpawn,
@@ -100,6 +105,11 @@ export function Canvas({
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
     [],
   );
+
+  // Once a node is dragged, pin it (its manual position wins over dagre).
+  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
+    draggedRef.current.add(node.id);
+  }, []);
 
   // Dragging a handle from a directory/log to an agent (or vice-versa) grants
   // access; the backend normalizes direction and validates the pair.
@@ -127,6 +137,7 @@ export function Canvas({
       edges={rfEdges as unknown as Edge[]}
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
+      onNodeDragStop={onNodeDragStop}
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
       fitView
