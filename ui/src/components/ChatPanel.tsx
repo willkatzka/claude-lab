@@ -736,7 +736,7 @@ export function ChatPanel({
             <div className={p.main ? 'chat-title main sub-bar' : 'chat-title sub-bar'}>
               <span>
                 {p.main ? (
-                  <>🧪 {agentLabel(p.node)} · main</>
+                  <>{agentLabel(p.node)} · main</>
                 ) : (
                   <>
                     {labelFor(p.node)} <span className="sub-role">· {agentLabel(p.node)}</span>

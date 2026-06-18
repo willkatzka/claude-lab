@@ -42,6 +42,31 @@ export function FolderIcon({ size = '1.25em' }: { size?: string }) {
   );
 }
 
+export function TaskIcon({ size = '1.25em' }: { size?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'inline-block', verticalAlign: '-0.22em', flex: 'none' }}
+      aria-hidden="true"
+    >
+      {/* clipboard board */}
+      <rect x="236" y="250" width="552" height="600" rx="46" fill={PAPER} />
+      {/* clip */}
+      <rect x="430" y="188" width="164" height="118" rx="34" fill={ACCENT} />
+      <rect x="466" y="150" width="92" height="78" rx="39" fill={ACCENT_DEEP} />
+      {/* ruled task lines */}
+      <g stroke={RULE} strokeWidth={34} strokeLinecap="round">
+        <line x1="340" y1="478" x2="684" y2="478" />
+        <line x1="340" y1="586" x2="684" y2="586" />
+        <line x1="340" y1="694" x2="560" y2="694" />
+      </g>
+    </svg>
+  );
+}
+
 export function LogIcon({ size = '1.25em' }: { size?: string }) {
   return (
     <svg

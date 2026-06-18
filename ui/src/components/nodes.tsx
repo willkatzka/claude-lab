@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { GraphNode } from '../types';
-import { FolderIcon, LogIcon } from './icons';
+import { FolderIcon, LogIcon, TaskIcon } from './icons';
 
 const STATUS_COLOR: Record<string, string> = {
   running: '#f59e0b',
@@ -226,7 +226,7 @@ export function TaskNode({ data }: { data: NodeData }) {
         }}
       />
       <div className="node-head">
-        <span className="task-ico">📋</span>
+        <span className="task-ico"><TaskIcon /></span>
         <EditableTitle node={n} onRename={data.onRename} className="ttitle" />
       </div>
       <Handle type="source" position={Position.Bottom} />
