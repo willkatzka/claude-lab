@@ -4,6 +4,7 @@ import {
   decidePermission,
   delegateNode,
   getMessages,
+  pathForFile,
   getSettings,
   openInTerminal,
   patchNode,
@@ -126,6 +127,32 @@ function ChatBlock({
         const f = it.getAsFile();
         if (f) addImage(f);
       });
+    }
+  };
+
+  // Drag & drop files into the chat: images attach as image blocks; other files
+  // are referenced by absolute path (Electron exposes file.path) so the agent
+  // can read them from disk.
+  const [dragOver, setDragOver] = useState(false);
+  const onDropFiles = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!canChat || running) return;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const paths: string[] = [];
+    files.forEach((f) => {
+      if (f.type.startsWith('image/')) addImage(f);
+      else {
+        const p = pathForFile(f);
+        if (p) paths.push(p);
+      }
+    });
+    if (paths.length) setDraft((d) => (d.trim() ? d.replace(/\s*$/, '') + '\n' : '') + paths.join('\n') + '\n');
+  };
+  const onDragOverFiles = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) {
+      e.preventDefault();
+      if (!dragOver) setDragOver(true);
     }
   };
 
@@ -467,7 +494,12 @@ function ChatBlock({
           </div>
         )}
       </div>
-      <div className="chat-input">
+      <div
+        className={`chat-input${dragOver ? ' drag-over' : ''}`}
+        onDrop={onDropFiles}
+        onDragOver={onDragOverFiles}
+        onDragLeave={() => setDragOver(false)}
+      >
         {attach.length > 0 && (
           <div className="attach-row">
             {attach.map((a, i) => (

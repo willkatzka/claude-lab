@@ -16,10 +16,12 @@ const j = async (r: Response) => {
 };
 
 // Native folder picker (only available inside the Electron desktop app).
-type ElectronLab = { pickFolder: () => Promise<string | null> };
+type ElectronLab = { pickFolder: () => Promise<string | null>; getPathForFile?: (f: File) => string };
 const electronLab = (): ElectronLab | undefined => (window as unknown as { electronLab?: ElectronLab }).electronLab;
 export const canPickFolder = (): boolean => typeof electronLab()?.pickFolder === 'function';
 export const pickFolder = (): Promise<string | null> => electronLab()!.pickFolder();
+// Absolute path of a dropped File (Electron only; '' in a plain browser).
+export const pathForFile = (f: File): string => electronLab()?.getPathForFile?.(f) ?? '';
 
 export const getLabs = (): Promise<LabInfo[]> => fetch('/api/labs').then(j);
 export const getGraph = (id: string): Promise<Graph> => fetch(`/api/labs/${id}/graph`).then(j);
