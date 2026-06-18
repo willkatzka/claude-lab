@@ -172,13 +172,30 @@ body {
   box-shadow: 0 1px 0 rgba(0,0,0,0.4);
   position: relative;
 }
+/* Connection handles on all four sides — subtle, brighten on hover so it's
+   clear you can draw a connection from any side. */
+.react-flow__handle {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border); border: 1.5px solid var(--bg);
+  opacity: 0.5; transition: opacity 0.12s ease, background 0.12s ease;
+}
+.node:hover .react-flow__handle { opacity: 0.9; }
+.react-flow__handle:hover { background: var(--accent); opacity: 1; }
+
 .spawn-btn {
-  position: absolute; top: -10px; right: -10px; z-index: 5;
+  position: absolute; z-index: 5;
   width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
   border: 1px solid var(--accent); background: var(--accent); color: #0b1220;
   font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity 0.1s ease;
 }
+/* The ＋ pops out on whichever side the cursor is nearest. */
+.spawn-btn.side-top { top: -11px; left: 50%; transform: translateX(-50%); }
+.spawn-btn.side-bottom { bottom: -11px; left: 50%; transform: translateX(-50%); }
+.spawn-btn.side-left { left: -11px; top: 50%; transform: translateY(-50%); }
+.spawn-btn.side-right { right: -11px; top: 50%; transform: translateY(-50%); }
+/* When wrapped by the directory picker, the wrap is positioned; button fills it. */
+.picker-wrap .spawn-btn { position: static; transform: none; }
 .node:hover .spawn-btn { opacity: 1; }
 .spawn-btn:hover { filter: brightness(1.12); }
 .term-btn {
@@ -226,8 +243,12 @@ body {
 .dir-ico, .log-ico { display: inline-block; vertical-align: middle; margin-right: 7px; }
 
 /* The directory "+" typed picker popover (Agent / Log / …). */
-.picker-wrap { position: absolute; top: -10px; right: -10px; z-index: 6; }
-.picker-wrap .spawn-btn { position: static; }
+.picker-wrap { position: absolute; z-index: 6; width: 22px; height: 22px; }
+.picker-wrap.side-top { top: -11px; left: 50%; transform: translateX(-50%); }
+.picker-wrap.side-bottom { bottom: -11px; left: 50%; transform: translateX(-50%); }
+.picker-wrap.side-left { left: -11px; top: 50%; transform: translateY(-50%); }
+.picker-wrap.side-right { right: -11px; top: 50%; transform: translateY(-50%); }
+.picker-wrap .spawn-btn { position: static; transform: none; }
 .picker-menu {
   position: absolute; top: 26px; right: 0; min-width: 136px; z-index: 20;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;

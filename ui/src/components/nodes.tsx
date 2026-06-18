@@ -11,6 +11,46 @@ const STATUS_COLOR: Record<string, string> = {
 
 const LEAF_RANK = 4; // themes have 5 tiers (0..4)
 
+type Side = 'top' | 'right' | 'bottom' | 'left';
+const POS: Record<Side, Position> = {
+  top: Position.Top,
+  right: Position.Right,
+  bottom: Position.Bottom,
+  left: Position.Left,
+};
+
+// Track which edge of a node the cursor is nearest, so the ＋ can pop out on that
+// side (and connections can be drawn from any side, not only the bottom).
+function useHoverSide() {
+  const [side, setSide] = useState<Side>('bottom');
+  const onMouseMove = (e: React.MouseEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const d: Record<Side, number> = { top: y, bottom: r.height - y, left: x, right: r.width - x };
+    const nearest = (Object.keys(d) as Side[]).reduce((a, b) => (d[b] < d[a] ? b : a), 'bottom' as Side);
+    if (nearest !== side) setSide(nearest);
+  };
+  return { side, onMouseMove };
+}
+
+// A source + target handle on every side, so an edge can attach to whichever side
+// faces its neighbor (layout picks the handle ids by geometry) and the user can
+// draw a connection from any side.
+const SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
+function SideHandles() {
+  return (
+    <>
+      {SIDES.map((s) => (
+        <span key={s}>
+          <Handle id={`t-${s}`} type="target" position={POS[s]} />
+          <Handle id={`s-${s}`} type="source" position={POS[s]} />
+        </span>
+      ))}
+    </>
+  );
+}
+
 export interface NodeData {
   node: GraphNode;
   onSpawn?: (n: GraphNode) => void;
@@ -24,10 +64,10 @@ export interface NodeData {
 }
 
 // The directory "+" : a small popover to add a typed child (Agent / Log / …).
-function PickerMenu({ node, onPick }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log') => void }) {
+function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log') => void; side?: Side }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="picker-wrap">
+    <div className={`picker-wrap side-${side}`}>
       <button
         className="spawn-btn"
         title="Add to this directory"
@@ -165,9 +205,9 @@ function EditableTitle({ node, onRename, className }: { node: GraphNode; onRenam
   );
 }
 
-function SpawnButton({ title, onClick }: { title: string; onClick: (e: React.MouseEvent) => void }) {
+function SpawnButton({ title, onClick, side = 'bottom' }: { title: string; onClick: (e: React.MouseEvent) => void; side?: Side }) {
   return (
-    <button className="spawn-btn" title={title} onClick={onClick}>
+    <button className={`spawn-btn side-${side}`} title={title} onClick={onClick}>
       ＋
     </button>
   );
@@ -178,9 +218,10 @@ export function AgentNode({ data }: { data: NodeData }) {
   const canSpawn = n.rank != null && n.rank < LEAF_RANK;
   const live = !!n.sessionId && !n.sessionId.startsWith('mock-');
   const chatClass = data.chatActive ? ' chat-active' : data.chatOpen ? ' chat-open' : '';
+  const { side, onMouseMove } = useHoverSide();
   return (
-    <div className={`node agent${chatClass}`}>
-      <Handle type="target" position={Position.Top} />
+    <div className={`node agent${chatClass}`} onMouseMove={onMouseMove}>
+      <SideHandles />
       {live && (
         <button
           className="term-btn"
@@ -195,7 +236,8 @@ export function AgentNode({ data }: { data: NodeData }) {
       )}
       {canSpawn && (
         <SpawnButton
-          title="Spawn an agent below this one"
+          title="Spawn an agent from this side"
+          side={side}
           onClick={(e) => {
             e.stopPropagation();
             data.onSpawn?.(n);
@@ -208,18 +250,19 @@ export function AgentNode({ data }: { data: NodeData }) {
         <EditableName node={n} onSetName={data.onSetName} />
       </div>
       <div className="node-sub">{n.status}</div>
-      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }
 
 export function TaskNode({ data }: { data: NodeData }) {
   const n = data.node;
+  const { side, onMouseMove } = useHoverSide();
   return (
-    <div className="node task">
-      <Handle type="target" position={Position.Top} />
+    <div className="node task" onMouseMove={onMouseMove}>
+      <SideHandles />
       <SpawnButton
         title="Add another agent to this project"
+        side={side}
         onClick={(e) => {
           e.stopPropagation();
           data.onSpawn?.(n);
@@ -229,7 +272,6 @@ export function TaskNode({ data }: { data: NodeData }) {
         <span className="task-ico"><TaskIcon /></span>
         <EditableTitle node={n} onRename={data.onRename} className="ttitle" />
       </div>
-      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }
@@ -238,15 +280,16 @@ export function TaskNode({ data }: { data: NodeData }) {
 // (Agent / Log / …). Shows the folder name + path.
 export function DirectoryNode({ data }: { data: NodeData }) {
   const n = data.node;
+  const { side, onMouseMove } = useHoverSide();
   return (
-    <div className="node directory">
-      <PickerMenu node={n} onPick={data.onPick} />
+    <div className="node directory" onMouseMove={onMouseMove}>
+      <SideHandles />
+      <PickerMenu node={n} onPick={data.onPick} side={side} />
       <div className="node-head">
         <span className="dir-ico"><FolderIcon /></span>
         <span className="role">{n.title}</span>
       </div>
       <div className="node-sub mono">{n.path || 'no folder set'}</div>
-      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }
@@ -254,15 +297,15 @@ export function DirectoryNode({ data }: { data: NodeData }) {
 // A shared markdown findings log living in the project folder (fed to read_log).
 export function LogNode({ data }: { data: NodeData }) {
   const n = data.node;
+  const { onMouseMove } = useHoverSide();
   return (
-    <div className="node log">
-      <Handle type="target" position={Position.Top} />
+    <div className="node log" onMouseMove={onMouseMove}>
+      <SideHandles />
       <div className="node-head">
         <span className="log-ico"><LogIcon /></span>
         <span className="role">{n.title}</span>
       </div>
       <div className="node-sub">shared log</div>
-      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }
