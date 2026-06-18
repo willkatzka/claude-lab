@@ -57,14 +57,15 @@ export interface NodeData {
   onTerminal?: (n: GraphNode) => void;
   onRename?: (id: string, title: string) => void;
   onSetName?: (id: string, name: string) => void;
-  onPick?: (n: GraphNode, kind: 'agent' | 'log') => void; // directory + picker
+  onSpawnSide?: (n: GraphNode, side: Side) => void; // spawn a child off the clicked side
+  onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side) => void; // directory + picker (with side)
   roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
 }
 
 // The directory "+" : a small popover to add a typed child (Agent / Log / …).
-function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log') => void; side?: Side }) {
+function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side) => void; side?: Side }) {
   const [open, setOpen] = useState(false);
   return (
     <div className={`picker-wrap side-${side}`}>
@@ -84,7 +85,7 @@ function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick
             onClick={(e) => {
               e.stopPropagation();
               setOpen(false);
-              onPick?.(node, 'agent');
+              onPick?.(node, 'agent', side);
             }}
           >
             ⬡ Agent
@@ -93,7 +94,7 @@ function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick
             onClick={(e) => {
               e.stopPropagation();
               setOpen(false);
-              onPick?.(node, 'log');
+              onPick?.(node, 'log', side);
             }}
           >
             <LogIcon size="1.05em" /> Log
@@ -240,7 +241,7 @@ export function AgentNode({ data }: { data: NodeData }) {
           side={side}
           onClick={(e) => {
             e.stopPropagation();
-            data.onSpawn?.(n);
+            data.onSpawnSide?.(n, side);
           }}
         />
       )}
@@ -265,7 +266,7 @@ export function TaskNode({ data }: { data: NodeData }) {
         side={side}
         onClick={(e) => {
           e.stopPropagation();
-          data.onSpawn?.(n);
+          data.onSpawnSide?.(n, side);
         }}
       />
       <div className="node-head">
