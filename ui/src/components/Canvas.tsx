@@ -9,6 +9,7 @@ import {
   type Node,
   type Edge,
   type NodeChange,
+  type Connection,
 } from '@xyflow/react';
 import { layout } from '../layout';
 import { AgentNode, TaskNode, DirectoryNode, LogNode } from './nodes';
@@ -42,6 +43,8 @@ export function Canvas({
   onRename,
   onSetName,
   onPick,
+  onConnectGrant,
+  onDisconnectGrant,
   onNodeContextMenu,
   activeChatId,
   openChatIds,
@@ -53,6 +56,8 @@ export function Canvas({
   onRename: (id: string, title: string) => void;
   onSetName: (id: string, name: string) => void;
   onPick: (n: GraphNode, kind: 'agent' | 'log') => void;
+  onConnectGrant: (from: string, to: string) => void;
+  onDisconnectGrant: (from: string, to: string) => void;
   onNodeContextMenu: (n: GraphNode, x: number, y: number) => void;
   activeChatId: string | null;
   openChatIds: string[];
@@ -96,12 +101,34 @@ export function Canvas({
     [],
   );
 
+  // Dragging a handle from a directory/log to an agent (or vice-versa) grants
+  // access; the backend normalizes direction and validates the pair.
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (c.source && c.target && c.source !== c.target) onConnectGrant(c.source, c.target);
+    },
+    [onConnectGrant],
+  );
+  // Deleting a selected access edge revokes the grant (only access edges are deletable).
+  const onEdgesDelete = useCallback(
+    (eds: Edge[]) => {
+      for (const e of eds) {
+        if ((e.data as { kind?: string } | undefined)?.kind === 'access' && e.source && e.target) {
+          onDisconnectGrant(e.source, e.target);
+        }
+      }
+    },
+    [onDisconnectGrant],
+  );
+
   return (
     <ReactFlow
       nodes={nodes}
       edges={rfEdges as unknown as Edge[]}
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
+      onConnect={onConnect}
+      onEdgesDelete={onEdgesDelete}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
       proOptions={{ hideAttribution: true }}

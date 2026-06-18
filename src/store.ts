@@ -39,7 +39,9 @@ export function readGraphFile(file: string): { nodes?: GraphNode[]; edges?: Edge
 // markdown findings file living in that folder; 'agent' and 'task' as before.
 export type NodeType = 'agent' | 'task' | 'directory' | 'log';
 export type Status = 'running' | 'waiting' | 'done';
-export type EdgeKind = 'delegates' | 'assigned';
+// 'access' = a manual grant: a directory or log connected to an agent, giving
+// that agent filesystem access to the folder / read access to the log.
+export type EdgeKind = 'delegates' | 'assigned' | 'access';
 
 export interface GraphNode {
   id: string;

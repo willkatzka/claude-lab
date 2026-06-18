@@ -12,9 +12,11 @@ import { ContextMenu, type MenuItem } from './components/ContextMenu';
 import { Thinking } from './components/Thinking';
 import {
   assignNode,
+  connectNodes,
   delegateNode,
   deleteLab,
   deleteNode,
+  disconnectNodes,
   getGraph,
   getLabs,
   openInTerminal,
@@ -306,6 +308,20 @@ export default function App() {
     [labId, refreshGraph],
   );
 
+  // Drag a connection: grant an agent access to a directory (filesystem) or log (read_log).
+  const onConnectGrant = useCallback(
+    (from: string, to: string) => {
+      if (labId) connectNodes(labId, from, to).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+  const onDisconnectGrant = useCallback(
+    (from: string, to: string) => {
+      if (labId) disconnectNodes(labId, from, to).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+
   // Open (or re-open) an agent's session in a terminal via `claude --resume`.
   const onTerminal = useCallback((n: GraphNode) => {
     if (n.sessionId && !n.sessionId.startsWith('mock-')) openInTerminal(n.sessionId);
@@ -409,6 +425,8 @@ export default function App() {
               onRename={onRename}
               onSetName={onSetName}
               onPick={onPick}
+              onConnectGrant={onConnectGrant}
+              onDisconnectGrant={onDisconnectGrant}
               onNodeContextMenu={onNodeContextMenu}
               activeChatId={activeChatId}
               openChatIds={[pi?.id, ...subs.map((s) => s.id)].filter((x): x is string => !!x)}

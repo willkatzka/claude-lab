@@ -1,7 +1,7 @@
 // Mirrors the orchestrator's store schema (the graph contract).
 export type NodeType = 'agent' | 'task' | 'directory' | 'log';
 export type Status = 'running' | 'waiting' | 'done';
-export type EdgeKind = 'delegates' | 'assigned';
+export type EdgeKind = 'delegates' | 'assigned' | 'access';
 
 export interface GraphNode {
   id: string;

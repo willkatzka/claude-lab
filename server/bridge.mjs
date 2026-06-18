@@ -191,11 +191,35 @@ function auditDigest(labId, limit = 80) {
     .join('\n');
 }
 
-// Contents of every shared Log node (markdown files) in a lab, for read_log.
-function sharedLogFiles(lab) {
+// Manual "access" grants for an agent: directories (folders) and logs connected
+// to it via an 'access' edge (resource → agent). Returns absolute dir paths and
+// the connected log nodes.
+function accessFor(lab, agentNodeId) {
+  const empty = { dirs: [], logs: [] };
+  if (!agentNodeId) return empty;
   try {
     const g = loadGraph(lab);
-    const logs = (g.nodes ?? []).filter((n) => n.type === 'log' && n.path);
+    const byId = new Map((g.nodes ?? []).map((n) => [n.id, n]));
+    const dirs = [];
+    const logs = [];
+    for (const e of g.edges ?? []) {
+      if (e.kind !== 'access' || e.to !== agentNodeId) continue;
+      const r = byId.get(e.from);
+      if (!r) continue;
+      if (r.type === 'directory' && r.path) dirs.push(r.path);
+      else if (r.type === 'log' && r.path) logs.push(r);
+    }
+    return { dirs, logs };
+  } catch {
+    return empty;
+  }
+}
+
+// Contents of the Log files an agent has been connected to (logs are opt-in per
+// agent via an 'access' edge — not globally visible).
+function sharedLogFiles(lab, agentNodeId) {
+  try {
+    const { logs } = accessFor(lab, agentNodeId);
     const parts = [];
     for (const l of logs) {
       if (!existsSync(l.path)) continue;
@@ -209,17 +233,17 @@ function sharedLogFiles(lab) {
 }
 
 // An in-process tool that lets an agent read the shared lab log on demand: the
-// shared Log files (markdown findings) plus the activity digest.
-const readLogServer = (lab) =>
+// Log files connected to THIS agent plus the activity digest.
+const readLogServer = (lab, agentNodeId) =>
   createSdkMcpServer({
     name: 'lab',
     tools: [
       tool(
         'read_log',
-        'Read the shared lab log: the shared findings log file(s) plus findings reported by every agent in this lab and a trail of who did what. Call this to catch up on teammates’ work before answering.',
+        'Read the shared lab log: any findings log file(s) connected to you plus a trail of who did what across this lab. Call this to catch up on teammates’ work before answering.',
         { limit: z.number().optional().describe('max recent events to read') },
         async (args) => {
-          const files = sharedLogFiles(lab);
+          const files = sharedLogFiles(lab, agentNodeId);
           const digest = auditDigest(lab.id, args.limit ?? 80);
           const text = files ? `${files}\n\n--- activity ---\n${digest}` : digest;
           return { content: [{ type: 'text', text }] };
@@ -660,6 +684,53 @@ app.post('/api/labs/:id/nodes/:nodeId/spawn', (req, res) => {
   }
 });
 
+// Manual connection: grant an agent access to a directory (filesystem) or a log
+// (read_log). Accepts the edge in either direction; stores it normalized as
+// resource → agent with kind 'access'. Takes effect on the agent's next turn.
+app.post('/api/labs/:id/connect', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  const { from, to } = req.body ?? {};
+  if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+  try {
+    const store = Store.open(graphPath(lab));
+    const a = store.nodes.find((n) => n.id === from);
+    const b = store.nodes.find((n) => n.id === to);
+    if (!a || !b) return res.status(404).json({ error: 'unknown node(s)' });
+    // Normalize: the resource (directory|log) is the source, the agent is the target.
+    const agent = a.type === 'agent' ? a : b.type === 'agent' ? b : null;
+    const resource = a.type === 'directory' || a.type === 'log' ? a : b.type === 'directory' || b.type === 'log' ? b : null;
+    if (!agent || !resource) return res.status(400).json({ error: 'connect a directory or log to an agent' });
+    const exists = store.edges.some((e) => e.kind === 'access' && e.from === resource.id && e.to === agent.id);
+    if (!exists) {
+      store.addEdge(resource.id, agent.id, 'access');
+      store.persist();
+    }
+    res.json({ ok: true, from: resource.id, to: agent.id });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Revoke a manual access grant (either direction).
+app.post('/api/labs/:id/disconnect', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  const { from, to } = req.body ?? {};
+  if (!from || !to) return res.status(400).json({ error: 'from and to required' });
+  try {
+    const store = Store.open(graphPath(lab));
+    const before = store.edges.length;
+    store.edges = store.edges.filter(
+      (e) => !(e.kind === 'access' && ((e.from === from && e.to === to) || (e.from === to && e.to === from))),
+    );
+    if (store.edges.length !== before) store.persist();
+    res.json({ ok: true, removed: before - store.edges.length });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
 // Account + usage (the /usage panel data). Cached briefly; one tiny query.
 let accountCache = null;
 let accountCacheAt = 0;
@@ -751,17 +822,19 @@ async function agentTurn(lab, node, prompt) {
   let sessionId = resuming ? node.sessionId : '';
   const key = runKey(lab.id, node.id);
   activeRuns.add(key);
+  const extraDirs = accessFor(lab, node.id).dirs;
   try {
     const q = query({
       prompt,
       options: {
         ...(resuming ? { resume: node.sessionId } : {}),
         cwd: cwdFor(lab),
+        ...(extraDirs.length ? { additionalDirectories: extraDirs } : {}),
         model: node.model || setting.model,
         effort: node.effort || setting.effort,
         permissionMode,
         systemPrompt: CC_SYSTEM_PROMPT,
-        mcpServers: { lab: readLogServer(lab) },
+        mcpServers: { lab: readLogServer(lab, node.id) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
@@ -796,13 +869,15 @@ app.post('/api/sessions/:sessionId/message', async (req, res) => {
     let reply = '';
     // Give the agent the read_log tool so it can pull the shared lab log
     // (teammates' findings) into its reasoning on demand. Allowlisted → no prompt.
-    const mcpServers = found ? { lab: readLogServer(found.lab) } : undefined;
+    const mcpServers = found ? { lab: readLogServer(found.lab, found.node.id) } : undefined;
     const allowedTools = found ? ['mcp__lab__read_log'] : [];
+    const extraDirs = found ? accessFor(found.lab, found.node.id).dirs : [];
     const q = query({
       prompt: withStyle(prompt),
       options: {
         resume: sessionId,
         cwd: found ? cwdFor(found.lab) : ROOT,
+        ...(extraDirs.length ? { additionalDirectories: extraDirs } : {}),
         model: setting.model,
         effort: setting.effort,
         permissionMode: setting.permissionMode,
@@ -965,6 +1040,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         };
       })()
     : styled;
+  const extraDirs = accessFor(lab, node.id).dirs;
   try {
     const q = query({
       prompt: promptArg,
@@ -972,12 +1048,13 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         ...(resuming ? { resume: node.sessionId } : {}),
         abortController: ac,
         cwd: cwdFor(lab),
+        ...(extraDirs.length ? { additionalDirectories: extraDirs } : {}),
         model: node.model || setting.model,
         effort: node.effort || setting.effort,
         permissionMode,
         ...(needsPrompt ? { canUseTool } : {}),
         systemPrompt: CC_SYSTEM_PROMPT,
-        mcpServers: { lab: readLogServer(lab) },
+        mcpServers: { lab: readLogServer(lab, node.id) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         includePartialMessages: true,

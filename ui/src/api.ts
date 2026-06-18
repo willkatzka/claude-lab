@@ -60,6 +60,19 @@ export const spawnUnder = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ kind, name }),
   }).then(j);
+// Manual access grants: connect a directory/log to an agent (or revoke).
+export const connectNodes = (labId: string, from: string, to: string): Promise<{ ok: boolean }> =>
+  fetch(`/api/labs/${labId}/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to }),
+  }).then(j);
+export const disconnectNodes = (labId: string, from: string, to: string): Promise<{ ok: boolean }> =>
+  fetch(`/api/labs/${labId}/disconnect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to }),
+  }).then(j);
 export const openInTerminal = (sessionId: string): Promise<{ opened: boolean }> =>
   fetch(`/api/sessions/${sessionId}/terminal`, { method: 'POST' }).then(j);
 
