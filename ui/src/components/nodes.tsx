@@ -57,34 +57,52 @@ export interface NodeData {
   onTerminal?: (n: GraphNode) => void;
   onRename?: (id: string, title: string) => void;
   onSetName?: (id: string, name: string) => void;
-  onSpawnSide?: (n: GraphNode, side: Side) => void; // spawn a child off the clicked side
-  onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => void; // directory + picker
+  onSpawnSide?: (n: GraphNode, side: Side) => void; // spawn a sub-agent off the clicked side
+  onPick?: (n: GraphNode, kind: PickKind, side: Side, name?: string) => void; // + picker
+  onEdit?: (id: string, patch: { title?: string; name?: string; color?: string }) => void; // edit name/color
   roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
 }
 
-// The directory "+" : a small popover to add a typed child (Agent / Log / …).
-function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => void; side?: Side }) {
+export type PickKind = 'agent' | 'log' | 'dir-attach' | 'dir-new';
+
+// The "+" popover. On a directory: Agent / Log. On an agent: Sub-agent / Attach
+// folder / New folder / Log (folders & logs attach to that agent as grants).
+function PickerMenu({
+  node,
+  variant,
+  side = 'bottom',
+  canSubAgent = true,
+  onPick,
+  onSubAgent,
+}: {
+  node: GraphNode;
+  variant: 'directory' | 'agent';
+  side?: Side;
+  canSubAgent?: boolean;
+  onPick?: (n: GraphNode, kind: PickKind, side: Side, name?: string) => void;
+  onSubAgent?: (n: GraphNode, side: Side) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [naming, setNaming] = useState(false); // typing a log name
-  const [logName, setLogName] = useState('');
+  const [naming, setNaming] = useState<null | 'log' | 'dir-new'>(null);
+  const [val, setVal] = useState('');
   const close = () => {
     setOpen(false);
-    setNaming(false);
-    setLogName('');
+    setNaming(null);
+    setVal('');
   };
-  const createLog = () => {
-    const t = logName.trim();
-    if (!t) return;
-    onPick?.(node, 'log', side, t);
+  const submit = () => {
+    const t = val.trim();
+    if (!t || !naming) return;
+    onPick?.(node, naming, side, t);
     close();
   };
   return (
     <div className={`picker-wrap side-${side}`}>
       <button
         className="spawn-btn"
-        title="Add to this directory"
+        title="Add"
         onClick={(e) => {
           e.stopPropagation();
           open ? close() : setOpen(true);
@@ -98,42 +116,77 @@ function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick
             <input
               className="picker-name"
               autoFocus
-              placeholder="Log name (e.g. Risk Scoring Review)"
-              value={logName}
-              onChange={(e) => setLogName(e.target.value)}
+              placeholder={naming === 'log' ? 'Log name (e.g. Risk Scoring Review)' : 'New folder name'}
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') createLog();
+                if (e.key === 'Enter') submit();
                 if (e.key === 'Escape') close();
               }}
             />
+          ) : variant === 'directory' ? (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); onPick?.(node, 'agent', side); close(); }}>⬡ Agent</button>
+              <button onClick={(e) => { e.stopPropagation(); setNaming('log'); }}><LogIcon size="1.05em" /> Log…</button>
+              <button className="picker-soon" disabled>＋ More soon</button>
+            </>
           ) : (
             <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPick?.(node, 'agent', side);
-                  close();
-                }}
-              >
-                ⬡ Agent
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setNaming(true);
-                }}
-              >
-                <LogIcon size="1.05em" /> Log…
-              </button>
-              <button className="picker-soon" disabled>
-                ＋ More soon
-              </button>
+              {canSubAgent && <button onClick={(e) => { e.stopPropagation(); onSubAgent?.(node, side); close(); }}>⬡ Sub-agent</button>}
+              <button onClick={(e) => { e.stopPropagation(); onPick?.(node, 'dir-attach', side); close(); }}><FolderIcon size="1.05em" /> Attach folder…</button>
+              <button onClick={(e) => { e.stopPropagation(); setNaming('dir-new'); }}><FolderIcon size="1.05em" /> New folder…</button>
+              <button onClick={(e) => { e.stopPropagation(); setNaming('log'); }}><LogIcon size="1.05em" /> Log…</button>
             </>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// Theme-matched node colors for the Edit popover.
+const SWATCHES = ['#2b3550', '#3b5b8c', '#1f6f5c', '#5a4a8c', '#8c6a2b', '#8c3b4a', '#3a4150'];
+
+// Per-node Edit control: a pencil button → popover to rename and recolor the box.
+function EditControl({ node, onEdit }: { node: GraphNode; onEdit?: (id: string, patch: { title?: string; name?: string; color?: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const isAgent = node.type === 'agent';
+  const [label, setLabel] = useState(isAgent ? node.name ?? '' : node.title);
+  useEffect(() => setLabel(isAgent ? node.name ?? '' : node.title), [node.name, node.title, isAgent]);
+  const saveLabel = () => onEdit?.(node.id, isAgent ? { name: label.trim() } : { title: label.trim() });
+  return (
+    <>
+      <button className="edit-btn" title="Edit name & color" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
+        ✎
+      </button>
+      {open && (
+        <div className="edit-pop" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <input
+            className="edit-title"
+            autoFocus
+            placeholder={isAgent ? 'Agent name' : 'Title'}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { saveLabel(); setOpen(false); }
+              if (e.key === 'Escape') setOpen(false);
+            }}
+          />
+          <div className="edit-swatches">
+            {SWATCHES.map((c) => (
+              <button key={c} className={`swatch${node.color === c ? ' on' : ''}`} style={{ background: c }} title={c} onClick={(e) => { e.stopPropagation(); onEdit?.(node.id, { color: c }); }} />
+            ))}
+            <button className={`swatch clear${!node.color ? ' on' : ''}`} title="Default color" onClick={(e) => { e.stopPropagation(); onEdit?.(node.id, { color: '' }); }}>
+              ↺
+            </button>
+          </div>
+          <div className="edit-actions">
+            <button onClick={(e) => { e.stopPropagation(); saveLabel(); setOpen(false); }}>Save</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -250,7 +303,7 @@ export function AgentNode({ data }: { data: NodeData }) {
   const chatClass = data.chatActive ? ' chat-active' : data.chatOpen ? ' chat-open' : '';
   const { side, onMouseMove } = useHoverSide();
   return (
-    <div className={`node agent${chatClass}`} onMouseMove={onMouseMove}>
+    <div className={`node agent${chatClass}`} onMouseMove={onMouseMove} style={n.color ? { background: n.color } : undefined}>
       <SideHandles />
       {live && (
         <button
@@ -264,16 +317,8 @@ export function AgentNode({ data }: { data: NodeData }) {
           ⌬
         </button>
       )}
-      {canSpawn && (
-        <SpawnButton
-          title="Spawn an agent from this side"
-          side={side}
-          onClick={(e) => {
-            e.stopPropagation();
-            data.onSpawnSide?.(n, side);
-          }}
-        />
-      )}
+      <EditControl node={n} onEdit={data.onEdit} />
+      <PickerMenu node={n} variant="agent" side={side} canSubAgent={canSpawn} onPick={data.onPick} onSubAgent={data.onSpawnSide} />
       <div className="node-head">
         <span className="dot" style={{ background: STATUS_COLOR[n.status] ?? '#999' }} />
         <span className="role">{data.roleLabel ?? n.title}</span>
@@ -288,8 +333,9 @@ export function TaskNode({ data }: { data: NodeData }) {
   const n = data.node;
   const { side, onMouseMove } = useHoverSide();
   return (
-    <div className="node task" onMouseMove={onMouseMove}>
+    <div className="node task" onMouseMove={onMouseMove} style={n.color ? { background: n.color } : undefined}>
       <SideHandles />
+      <EditControl node={n} onEdit={data.onEdit} />
       <SpawnButton
         title="Add another agent to this project"
         side={side}
@@ -312,9 +358,10 @@ export function DirectoryNode({ data }: { data: NodeData }) {
   const n = data.node;
   const { side, onMouseMove } = useHoverSide();
   return (
-    <div className="node directory" onMouseMove={onMouseMove}>
+    <div className="node directory" onMouseMove={onMouseMove} style={n.color ? { background: n.color } : undefined}>
       <SideHandles />
-      <PickerMenu node={n} onPick={data.onPick} side={side} />
+      <EditControl node={n} onEdit={data.onEdit} />
+      <PickerMenu node={n} variant="directory" side={side} onPick={data.onPick} />
       <div className="node-head">
         <span className="dir-ico"><FolderIcon /></span>
         <span className="role">{n.title}</span>
@@ -329,8 +376,9 @@ export function LogNode({ data }: { data: NodeData }) {
   const n = data.node;
   const { onMouseMove } = useHoverSide();
   return (
-    <div className="node log" onMouseMove={onMouseMove}>
+    <div className="node log" onMouseMove={onMouseMove} style={n.color ? { background: n.color } : undefined}>
       <SideHandles />
+      <EditControl node={n} onEdit={data.onEdit} />
       <div className="node-head">
         <span className="log-ico"><LogIcon /></span>
         <span className="role">{n.title}</span>

@@ -301,9 +301,32 @@ export default function App() {
 
   // Directory ＋ picker: create a typed child (Agent / Log) under the directory.
   const onPick = useCallback(
-    (n: GraphNode, kind: 'agent' | 'log', name?: string) => {
+    async (n: GraphNode, kind: 'agent' | 'log' | 'dir-attach' | 'dir-new', name?: string) => {
       if (!labId) return;
-      spawnUnder(labId, n.id, kind, name).then(refreshGraph).catch(() => {});
+      try {
+        if (kind === 'dir-attach') {
+          const path = canPickFolder() ? await pickFolder() : null;
+          if (!path) return;
+          await spawnUnder(labId, n.id, 'directory', { mode: 'attach', path });
+        } else if (kind === 'dir-new') {
+          await spawnUnder(labId, n.id, 'directory', { mode: 'new', name });
+        } else if (kind === 'log') {
+          await spawnUnder(labId, n.id, 'log', { name });
+        } else {
+          await spawnUnder(labId, n.id, 'agent', {});
+        }
+        refreshGraph();
+      } catch {
+        /* ignore */
+      }
+    },
+    [labId, refreshGraph],
+  );
+
+  // Edit a node: rename (title or agent name) and/or recolor.
+  const onEdit = useCallback(
+    (id: string, patch: { title?: string; name?: string; color?: string }) => {
+      if (labId) patchNode(labId, id, patch).then(refreshGraph).catch(() => {});
     },
     [labId, refreshGraph],
   );
@@ -427,6 +450,7 @@ export default function App() {
               onRename={onRename}
               onSetName={onSetName}
               onPick={onPick}
+              onEdit={onEdit}
               onConnectGrant={onConnectGrant}
               onDisconnectGrant={onDisconnectGrant}
               onNodeContextMenu={onNodeContextMenu}

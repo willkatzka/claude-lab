@@ -12,7 +12,7 @@ import {
   type Connection,
 } from '@xyflow/react';
 import { layout, NODE_W, NODE_H } from '../layout';
-import { AgentNode, TaskNode, DirectoryNode, LogNode } from './nodes';
+import { AgentNode, TaskNode, DirectoryNode, LogNode, type PickKind } from './nodes';
 import { agentRole, type Graph, type GraphNode } from '../types';
 
 const nodeTypes = { agent: AgentNode, task: TaskNode, directory: DirectoryNode, log: LogNode };
@@ -66,6 +66,7 @@ export function Canvas({
   onRename,
   onSetName,
   onPick,
+  onEdit,
   onConnectGrant,
   onDisconnectGrant,
   onNodeContextMenu,
@@ -78,7 +79,8 @@ export function Canvas({
   onTerminal: (n: GraphNode) => void;
   onRename: (id: string, title: string) => void;
   onSetName: (id: string, name: string) => void;
-  onPick: (n: GraphNode, kind: 'agent' | 'log', name?: string) => void;
+  onPick: (n: GraphNode, kind: PickKind, name?: string) => void;
+  onEdit: (id: string, patch: { title?: string; name?: string; color?: string }) => void;
   onConnectGrant: (from: string, to: string) => void;
   onDisconnectGrant: (from: string, to: string) => void;
   onNodeContextMenu: (n: GraphNode, x: number, y: number) => void;
@@ -107,7 +109,7 @@ export function Canvas({
     [onSpawn],
   );
   const handlePick = useCallback(
-    (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => {
+    (n: GraphNode, kind: PickKind, side: Side, name?: string) => {
       pendingSpawn.current = { parentId: n.id, side };
       onPick(n, kind, name);
     },
@@ -128,7 +130,13 @@ export function Canvas({
       if (pend) {
         const parent = prevById.get(pend.parentId);
         const child = rfNodes.find(
-          (rn) => !knownIds.current.has(rn.id) && graph.edges.some((e) => e.to === rn.id && e.from === pend.parentId),
+          (rn) =>
+            !knownIds.current.has(rn.id) &&
+            graph.edges.some(
+              (e) =>
+                (e.to === rn.id && e.from === pend.parentId) || // assigned/delegate child
+                (e.from === rn.id && e.to === pend.parentId), // access grant (resource → agent)
+            ),
         );
         if (parent && child) {
           const off = sideOffset(pend.side);
@@ -151,6 +159,7 @@ export function Canvas({
             onRename,
             onSetName,
             onPick: handlePick,
+            onEdit,
             roleLabel:
               (rn.data as { node: GraphNode }).node.type === 'agent'
                 ? agentRole((rn.data as { node: GraphNode }).node, graph.nodes)
@@ -163,7 +172,7 @@ export function Canvas({
       rfNodes.forEach((rn) => knownIds.current.add(rn.id));
       return next;
     });
-  }, [rfNodes, onSpawnSide, onTerminal, onRename, onSetName, handlePick, graph.edges, graph.nodes, activeChatId, openChatIds]);
+  }, [rfNodes, onSpawnSide, onTerminal, onRename, onSetName, handlePick, onEdit, graph.edges, graph.nodes, activeChatId, openChatIds]);
 
   // Edge handles: the auto-laid tree uses bottom→top (stable, never flips). Only
   // manually-arranged nodes (dragged / directionally-spawned) and access grants

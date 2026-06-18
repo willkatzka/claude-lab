@@ -58,6 +58,7 @@ export interface GraphNode {
   permission?: string; // agent nodes: per-agent permission override (else the role's default)
   name?: string; // agent nodes: a custom label shown after the role ("Role: Name")
   path?: string; // directory: folder path; log: markdown file path
+  color?: string; // optional custom accent color (hex) for the node box
 }
 
 export interface Edge {

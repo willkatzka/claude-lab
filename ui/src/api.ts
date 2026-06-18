@@ -48,17 +48,18 @@ export const assignNode = (labId: string, taskNodeId: string, dry = false): Prom
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ taskNodeId, dry }),
   }).then(j);
-// The directory "+" picker: create a typed child under a node (agent | log).
+// The "+" picker: create a typed child under a node.
+//  agent | log (name) | directory ({mode:'attach', path} | {mode:'new', name}).
 export const spawnUnder = (
   labId: string,
   nodeId: string,
-  kind: 'agent' | 'log',
-  name?: string,
+  kind: 'agent' | 'log' | 'directory',
+  opts: { name?: string; mode?: 'attach' | 'new'; path?: string } = {},
 ): Promise<{ created: string; type: string; path?: string }> =>
   fetch(`/api/labs/${labId}/nodes/${nodeId}/spawn`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, name }),
+    body: JSON.stringify({ kind, ...opts }),
   }).then(j);
 // Manual access grants: connect a directory/log to an agent (or revoke).
 export const connectNodes = (labId: string, from: string, to: string): Promise<{ ok: boolean }> =>

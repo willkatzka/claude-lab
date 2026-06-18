@@ -366,13 +366,14 @@ app.patch('/api/labs/:id/nodes/:nodeId', (req, res) => {
   const g = loadGraph(lab);
   const node = g.nodes.find((n) => n.id === req.params.nodeId);
   if (!node) return res.status(404).json({ error: 'no such node' });
-  const { title, description, model, effort, name, permission } = req.body ?? {};
+  const { title, description, model, effort, name, permission, color } = req.body ?? {};
   if (typeof title === 'string') node.title = title;
   if (typeof description === 'string') node.description = description;
   if (typeof model === 'string') node.model = model;
   if (typeof effort === 'string') node.effort = effort;
   if (typeof name === 'string') node.name = name;
   if (typeof permission === 'string') node.permission = permission;
+  if (typeof color === 'string') node.color = color || undefined; // '' clears it
   saveGraph(lab, g);
   res.json({ ok: true, node });
 });
@@ -389,7 +390,10 @@ app.delete('/api/labs/:id/nodes/:nodeId', (req, res) => {
     const id = stack.pop();
     if (doomed.has(id)) continue;
     doomed.add(id);
-    for (const e of g.edges) if (e.from === id && !doomed.has(e.to)) stack.push(e.to);
+    // Only follow HIERARCHY edges (assigned/delegates) — never 'access' grants,
+    // which run resource→agent and would otherwise cascade a deleted log/folder
+    // into the connected agent and wipe its whole subtree.
+    for (const e of g.edges) if (e.kind !== 'access' && e.from === id && !doomed.has(e.to)) stack.push(e.to);
   }
   g.nodes = g.nodes.filter((n) => !doomed.has(n.id));
   g.edges = g.edges.filter((e) => !doomed.has(e.from) && !doomed.has(e.to));
@@ -661,25 +665,56 @@ app.post('/api/labs/:id/assign', (req, res) => {
   res.json({ started: true });
 });
 
-// The directory "+" picker: create a typed child (agent | log) under a node.
+// The "+" picker: create a typed child under a node.
+//  kind 'agent' → a lead agent (under the directory root).
+//  kind 'log'   → a shared markdown findings file.
+//  kind 'directory' → a folder reference; mode 'attach' (pick an existing path) or
+//                     'new' (mkdir <name> inside the lab cwd).
+// When the parent is an agent, a directory/log is linked with an 'access' grant
+// edge (resource → agent); under the directory root it's an 'assigned' child.
 app.post('/api/labs/:id/nodes/:nodeId/spawn', (req, res) => {
   const lab = loadLabs().find((l) => l.id === req.params.id);
   if (!lab) return res.status(404).json({ error: 'no such lab' });
   const kind = req.body?.kind;
-  if (kind !== 'agent' && kind !== 'log') return res.status(400).json({ error: 'kind must be agent|log' });
+  if (!['agent', 'log', 'directory'].includes(kind)) return res.status(400).json({ error: 'kind must be agent|log|directory' });
   try {
     const theme = THEMES[lab.theme] ?? THEMES[DEFAULT_THEME];
     const store = Store.open(graphPath(lab));
     const parent = store.nodes.find((n) => n.id === req.params.nodeId);
     if (!parent) return res.status(404).json({ error: 'no such node' });
+    // A resource (directory/log) attached to an agent is an access grant; otherwise
+    // it's a hierarchy child of the directory root.
+    const linkResource = (resourceId) =>
+      store.addEdge(parent.type === 'agent' ? resourceId : parent.id, parent.type === 'agent' ? parent.id : resourceId, parent.type === 'agent' ? 'access' : 'assigned');
 
     if (kind === 'agent') {
-      // A new lead under the directory (or a peer under any node) — idle, no session.
       const agent = store.addAgent(`${theme.id}:0`, theme.roles[0], parent.description || '', 0);
       agent.status = 'waiting';
       store.addEdge(parent.id, agent.id, 'assigned');
       store.persist();
       return res.json({ created: agent.id, type: 'agent' });
+    }
+
+    if (kind === 'directory') {
+      const mode = req.body?.mode === 'new' ? 'new' : 'attach';
+      let dirPath;
+      let title;
+      if (mode === 'attach') {
+        dirPath = String(req.body?.path || '').trim();
+        if (!dirPath || !isValidDir(dirPath)) return res.status(400).json({ error: 'a valid folder path is required' });
+        title = basename(dirPath);
+      } else {
+        const name = String(req.body?.name || '').trim().slice(0, 60);
+        if (!name) return res.status(400).json({ error: 'a folder name is required' });
+        if (!lab.cwd || !isValidDir(lab.cwd)) return res.status(400).json({ error: 'set this lab’s working folder first' });
+        dirPath = join(lab.cwd, slugify(name) || 'folder');
+        mkdirSync(dirPath, { recursive: true });
+        title = name;
+      }
+      const dir = store.addDirectory(title, mode === 'new' ? 'New folder' : 'Attached folder', dirPath);
+      linkResource(dir.id);
+      store.persist();
+      return res.json({ created: dir.id, type: 'directory', path: dirPath });
     }
 
     // kind === 'log': a shared markdown findings file in the project folder.
@@ -692,7 +727,7 @@ app.post('/api/labs/:id/nodes/:nodeId/spawn', (req, res) => {
       writeFileSync(filePath, `# ${rawName}\n\nShared findings log. Agents append findings here and read it via the read_log tool.\n`);
     }
     const log = store.addLog(rawName, `Shared log → ${filePath}`, filePath);
-    store.addEdge(parent.id, log.id, 'assigned');
+    linkResource(log.id);
     store.persist();
     res.json({ created: log.id, type: 'log', path: filePath });
   } catch (e) {
