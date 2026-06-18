@@ -239,6 +239,7 @@ export function Canvas({
       onEdgesDelete={onEdgesDelete}
       fitView
       fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+      minZoom={0.15}
       proOptions={{ hideAttribution: true }}
       onNodeClick={(_, node) => {
         const n = (node.data as { node: GraphNode }).node;

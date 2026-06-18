@@ -441,7 +441,7 @@ export default function App() {
         {!labId ? (
           <EmptyCanvas onNewLab={() => setNewLabOpen(true)} />
         ) : graph ? (
-          <ReactFlowProvider>
+          <ReactFlowProvider key={labId}>
             <Canvas
               graph={graph}
               onAgentClick={onAgentClick}
