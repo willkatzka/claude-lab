@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAudit } from '../api';
 import type { AuditEvent } from '../types';
+import { LogIcon } from './icons';
 
 const COLOR: Record<string, string> = {
   spawn: '#6ea8fe',
@@ -71,7 +72,7 @@ export function AuditPanel({ labId, labName, onClose }: { labId: string; labName
       <div className="modal audit" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span>
-            📜 {labName} — activity &amp; findings <span className="muted">({shown.length})</span>
+            <LogIcon size="1.1em" /> {labName} — activity &amp; findings <span className="muted">({shown.length})</span>
           </span>
           <button onClick={onClose}>✕</button>
         </div>

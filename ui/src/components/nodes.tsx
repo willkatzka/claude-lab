@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { GraphNode } from '../types';
+import { FolderIcon, LogIcon } from './icons';
 
 const STATUS_COLOR: Record<string, string> = {
   running: '#f59e0b',
@@ -55,7 +56,7 @@ function PickerMenu({ node, onPick }: { node: GraphNode; onPick?: (n: GraphNode,
               onPick?.(node, 'log');
             }}
           >
-            ▤ Log
+            <LogIcon size="1.05em" /> Log
           </button>
           <button className="picker-soon" disabled>
             ＋ More soon
@@ -241,7 +242,7 @@ export function DirectoryNode({ data }: { data: NodeData }) {
     <div className="node directory">
       <PickerMenu node={n} onPick={data.onPick} />
       <div className="node-head">
-        <span className="dir-ico">🗂</span>
+        <span className="dir-ico"><FolderIcon /></span>
         <span className="role">{n.title}</span>
       </div>
       <div className="node-sub mono">{n.path || 'no folder set'}</div>
@@ -257,7 +258,7 @@ export function LogNode({ data }: { data: NodeData }) {
     <div className="node log">
       <Handle type="target" position={Position.Top} />
       <div className="node-head">
-        <span className="log-ico">▤</span>
+        <span className="log-ico"><LogIcon /></span>
         <span className="role">{n.title}</span>
       </div>
       <div className="node-sub">shared log</div>
