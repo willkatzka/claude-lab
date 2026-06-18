@@ -301,9 +301,9 @@ export default function App() {
 
   // Directory ＋ picker: create a typed child (Agent / Log) under the directory.
   const onPick = useCallback(
-    (n: GraphNode, kind: 'agent' | 'log') => {
+    (n: GraphNode, kind: 'agent' | 'log', name?: string) => {
       if (!labId) return;
-      spawnUnder(labId, n.id, kind).then(refreshGraph).catch(() => {});
+      spawnUnder(labId, n.id, kind, name).then(refreshGraph).catch(() => {});
     },
     [labId, refreshGraph],
   );

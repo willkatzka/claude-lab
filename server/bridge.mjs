@@ -224,13 +224,29 @@ function sharedLogFiles(lab, agentNodeId) {
     for (const l of logs) {
       if (!existsSync(l.path)) continue;
       const body = readFileSync(l.path, 'utf8').trim();
-      if (body) parts.push(`### Log: ${l.title}\n${body}`);
+      if (body) parts.push(`### Log: ${l.title} (${l.path})\n${body}`);
     }
     return parts.join('\n\n');
   } catch {
     return '';
   }
 }
+
+// When an agent is connected to log file(s), append this to its Claude Code
+// system prompt so it records findings to the exact file and confirms — without
+// being asked. Agents with no connected log stay 1:1 with plain Claude Code.
+function logDirective(logs) {
+  if (!logs || !logs.length) return null;
+  const list = logs.map((l) => `- "${l.title}" → ${l.path}`).join('\n');
+  return (
+    `\n\nThis lab has connected you to the following shared log file(s):\n${list}\n` +
+    `When you finish the work requested in a turn, append a concise, dated entry to the most relevant log file above — append, never overwrite; create the file if it doesn't exist — summarizing what you did and any key findings. Then, in your reply, confirm you updated it and refer to it by its exact file path (e.g. ${logs[0].path}), not a generic name. Do this on your own, every task, without being asked.`
+  );
+}
+const sysPromptFor = (logs) => {
+  const directive = logDirective(logs);
+  return directive ? { type: 'preset', preset: 'claude_code', append: directive } : CC_SYSTEM_PROMPT;
+};
 
 // An in-process tool that lets an agent read the shared lab log on demand: the
 // Log files connected to THIS agent plus the activity digest.
@@ -822,7 +838,8 @@ async function agentTurn(lab, node, prompt) {
   let sessionId = resuming ? node.sessionId : '';
   const key = runKey(lab.id, node.id);
   activeRuns.add(key);
-  const extraDirs = accessFor(lab, node.id).dirs;
+  const access = accessFor(lab, node.id);
+  const extraDirs = access.dirs;
   try {
     const q = query({
       prompt,
@@ -833,7 +850,7 @@ async function agentTurn(lab, node, prompt) {
         model: node.model || setting.model,
         effort: node.effort || setting.effort,
         permissionMode,
-        systemPrompt: CC_SYSTEM_PROMPT,
+        systemPrompt: sysPromptFor(access.logs),
         mcpServers: { lab: readLogServer(lab, node.id) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
@@ -871,7 +888,8 @@ app.post('/api/sessions/:sessionId/message', async (req, res) => {
     // (teammates' findings) into its reasoning on demand. Allowlisted → no prompt.
     const mcpServers = found ? { lab: readLogServer(found.lab, found.node.id) } : undefined;
     const allowedTools = found ? ['mcp__lab__read_log'] : [];
-    const extraDirs = found ? accessFor(found.lab, found.node.id).dirs : [];
+    const access = found ? accessFor(found.lab, found.node.id) : { dirs: [], logs: [] };
+    const extraDirs = access.dirs;
     const q = query({
       prompt: withStyle(prompt),
       options: {
@@ -881,7 +899,7 @@ app.post('/api/sessions/:sessionId/message', async (req, res) => {
         model: setting.model,
         effort: setting.effort,
         permissionMode: setting.permissionMode,
-        systemPrompt: CC_SYSTEM_PROMPT,
+        systemPrompt: sysPromptFor(access.logs),
         mcpServers,
         allowedTools,
         maxTurns: CHAT_MAX_TURNS,
@@ -1040,7 +1058,8 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         };
       })()
     : styled;
-  const extraDirs = accessFor(lab, node.id).dirs;
+  const access = accessFor(lab, node.id);
+  const extraDirs = access.dirs;
   try {
     const q = query({
       prompt: promptArg,
@@ -1053,7 +1072,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         effort: node.effort || setting.effort,
         permissionMode,
         ...(needsPrompt ? { canUseTool } : {}),
-        systemPrompt: CC_SYSTEM_PROMPT,
+        systemPrompt: sysPromptFor(access.logs),
         mcpServers: { lab: readLogServer(lab, node.id) },
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,

@@ -58,15 +58,28 @@ export interface NodeData {
   onRename?: (id: string, title: string) => void;
   onSetName?: (id: string, name: string) => void;
   onSpawnSide?: (n: GraphNode, side: Side) => void; // spawn a child off the clicked side
-  onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side) => void; // directory + picker (with side)
+  onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => void; // directory + picker
   roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
 }
 
 // The directory "+" : a small popover to add a typed child (Agent / Log / …).
-function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side) => void; side?: Side }) {
+function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick?: (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => void; side?: Side }) {
   const [open, setOpen] = useState(false);
+  const [naming, setNaming] = useState(false); // typing a log name
+  const [logName, setLogName] = useState('');
+  const close = () => {
+    setOpen(false);
+    setNaming(false);
+    setLogName('');
+  };
+  const createLog = () => {
+    const t = logName.trim();
+    if (!t) return;
+    onPick?.(node, 'log', side, t);
+    close();
+  };
   return (
     <div className={`picker-wrap side-${side}`}>
       <button
@@ -74,34 +87,50 @@ function PickerMenu({ node, onPick, side = 'bottom' }: { node: GraphNode; onPick
         title="Add to this directory"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen((o) => !o);
+          open ? close() : setOpen(true);
         }}
       >
         ＋
       </button>
       {open && (
         <div className="picker-menu" onMouseDown={(e) => e.stopPropagation()}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
-              onPick?.(node, 'agent', side);
-            }}
-          >
-            ⬡ Agent
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(false);
-              onPick?.(node, 'log', side);
-            }}
-          >
-            <LogIcon size="1.05em" /> Log
-          </button>
-          <button className="picker-soon" disabled>
-            ＋ More soon
-          </button>
+          {naming ? (
+            <input
+              className="picker-name"
+              autoFocus
+              placeholder="Log name (e.g. Risk Scoring Review)"
+              value={logName}
+              onChange={(e) => setLogName(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') createLog();
+                if (e.key === 'Escape') close();
+              }}
+            />
+          ) : (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPick?.(node, 'agent', side);
+                  close();
+                }}
+              >
+                ⬡ Agent
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNaming(true);
+                }}
+              >
+                <LogIcon size="1.05em" /> Log…
+              </button>
+              <button className="picker-soon" disabled>
+                ＋ More soon
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

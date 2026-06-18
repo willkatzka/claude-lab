@@ -78,7 +78,7 @@ export function Canvas({
   onTerminal: (n: GraphNode) => void;
   onRename: (id: string, title: string) => void;
   onSetName: (id: string, name: string) => void;
-  onPick: (n: GraphNode, kind: 'agent' | 'log') => void;
+  onPick: (n: GraphNode, kind: 'agent' | 'log', name?: string) => void;
   onConnectGrant: (from: string, to: string) => void;
   onDisconnectGrant: (from: string, to: string) => void;
   onNodeContextMenu: (n: GraphNode, x: number, y: number) => void;
@@ -107,9 +107,9 @@ export function Canvas({
     [onSpawn],
   );
   const handlePick = useCallback(
-    (n: GraphNode, kind: 'agent' | 'log', side: Side) => {
+    (n: GraphNode, kind: 'agent' | 'log', side: Side, name?: string) => {
       pendingSpawn.current = { parentId: n.id, side };
-      onPick(n, kind);
+      onPick(n, kind, name);
     },
     [onPick],
   );

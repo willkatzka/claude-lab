@@ -280,6 +280,11 @@ button, input, textarea, select, a, .react-flow__pane, .react-flow__node {
 .picker-menu button:hover { background: var(--agent); }
 .picker-menu .picker-soon { color: var(--muted); cursor: default; opacity: 0.6; }
 .picker-menu .picker-soon:hover { background: none; }
+.picker-menu .picker-name {
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12.5px; width: 200px; outline: none;
+}
+.picker-menu .picker-name:focus { border-color: var(--accent); }
 /* Head flows as one wrapping line: ● Role: Name */
 .node-head { font-weight: 600; line-height: 1.3; }
 .node-head .dot, .node-head .task-ico { display: inline-block; vertical-align: middle; margin-right: 7px; }
