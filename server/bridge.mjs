@@ -57,6 +57,12 @@ const isValidDir = (p) => {
 // description, not via system-prompt instructions that would shape behavior.)
 const CC_SYSTEM_PROMPT = { type: 'preset', preset: 'claude_code' };
 const CC_SETTING_SOURCES = ['user', 'project', 'local'];
+// The SDK's claude_code preset omits the dedicated Grep/Glob search tools (it
+// routes search through Bash) unless they're listed — so Lab agents search far
+// more clumsily than the `claude` CLI. Listing them in allowedTools adds them
+// back (additive — the rest of the default toolset is unaffected). read_log is
+// listed too so it stays auto-approved.
+const CC_ALLOWED_TOOLS = ['Grep', 'Glob', 'mcp__lab__read_log'];
 // Let agents run to completion like Claude Code — no low turn cap. This is a
 // runaway backstop only (a single chat message doing 1000 tool rounds is a loop).
 const CHAT_MAX_TURNS = 1000;
@@ -887,6 +893,7 @@ async function agentTurn(lab, node, prompt) {
         permissionMode,
         systemPrompt: sysPromptFor(access.logs),
         mcpServers: { lab: readLogServer(lab, node.id) },
+        allowedTools: CC_ALLOWED_TOOLS,
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
@@ -922,7 +929,7 @@ app.post('/api/sessions/:sessionId/message', async (req, res) => {
     // Give the agent the read_log tool so it can pull the shared lab log
     // (teammates' findings) into its reasoning on demand. Allowlisted → no prompt.
     const mcpServers = found ? { lab: readLogServer(found.lab, found.node.id) } : undefined;
-    const allowedTools = found ? ['mcp__lab__read_log'] : [];
+    const allowedTools = found ? CC_ALLOWED_TOOLS : [];
     const access = found ? accessFor(found.lab, found.node.id) : { dirs: [], logs: [] };
     const extraDirs = access.dirs;
     const q = query({
@@ -1109,6 +1116,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
         ...(needsPrompt ? { canUseTool } : {}),
         systemPrompt: sysPromptFor(access.logs),
         mcpServers: { lab: readLogServer(lab, node.id) },
+        allowedTools: CC_ALLOWED_TOOLS,
         maxTurns: CHAT_MAX_TURNS,
         settingSources: CC_SETTING_SOURCES,
         includePartialMessages: true,
