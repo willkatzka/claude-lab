@@ -112,6 +112,10 @@ function createWindow() {
     minHeight: 600,
     title: 'Claude Lab',
     backgroundColor: '#0f1115',
+    // Dark, frameless title bar: the app's own dark UI extends to the top edge,
+    // with the macOS traffic lights overlaid (no light system title strip).
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 16 },
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadURL(APP_URL);

@@ -43,6 +43,24 @@ body {
   color: var(--text);
 }
 
+/* Frameless (hiddenInset) title bar: dark drag strips under the macOS traffic
+   lights let the window be moved; interactive elements stay clickable. */
+.win-drag { height: 30px; flex: none; align-self: stretch; -webkit-app-region: drag; }
+button, input, textarea, select, a, .react-flow__pane, .react-flow__node {
+  -webkit-app-region: no-drag;
+}
+
+/* Thin, dark scrollbars to match the UI (replaces the chunky default bars). */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 8px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #3a4150; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 .app { display: flex; height: 100vh; }
 
 /* ---- Labs rail ---- */

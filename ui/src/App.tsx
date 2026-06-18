@@ -346,6 +346,8 @@ export default function App() {
   return (
     <div className="app">
       <aside className={`labs ${collapsed ? 'collapsed' : ''}`}>
+        {/* Draggable strip under the frameless title bar (clears the traffic lights). */}
+        <div className="win-drag" />
         {collapsed ? (
           <button className="reopen" title="Show labs" onClick={() => setCollapsed(false)}>
             ▸

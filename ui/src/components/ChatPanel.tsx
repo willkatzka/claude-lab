@@ -713,6 +713,7 @@ export function ChatPanel({
   if (!pi && subs.length === 0) {
     return (
       <div className="chat empty" style={style}>
+        <div className="win-drag" />
         {deployMode === 'terminal'
           ? 'Terminal deployment — click an agent to open it in your terminal (claude --resume).'
           : 'Select the lead agent (top of the hierarchy) to open the main chat.'}
@@ -723,6 +724,7 @@ export function ChatPanel({
   const panes = [...(pi ? [{ node: pi, main: true }] : []), ...subs.map((s) => ({ node: s, main: false }))];
   return (
     <div className="chat" style={style}>
+      <div className="win-drag" />
       {panes.map((p, i) => (
         <Fragment key={p.node.id}>
           {i > 0 && (
