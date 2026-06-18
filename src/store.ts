@@ -2,8 +2,38 @@
 // UI consumes exactly this shape. Persisted to data/graph.json after every
 // mutation so the graph survives a crash/restart.
 
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+// Atomic graph write: serialize to a unique temp file, then rename over the
+// target. rename(2) is atomic on the same filesystem, so a concurrent reader
+// always sees either the complete old file or the complete new one — never a
+// truncated/empty file. (writeFileSync truncates-then-writes, which a reader in
+// another process can catch mid-write and mis-read as corrupt → data loss.)
+let writeSeq = 0;
+export function atomicWriteJSON(file: string, data: unknown): void {
+  const dir = dirname(file);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}-${++writeSeq}`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2));
+  renameSync(tmp, file);
+}
+
+// Read + parse a graph file, retrying a few times on a transient parse failure
+// (e.g. a read that raced a non-atomic write). If it still won't parse, THROW —
+// callers must abort their mutation rather than overwrite good data with empty.
+export function readGraphFile(file: string): { nodes?: GraphNode[]; edges?: Edge[] } {
+  let lastErr: unknown;
+  for (let i = 0; i < 4; i++) {
+    try {
+      const raw = readFileSync(file, 'utf8');
+      if (raw.trim()) return JSON.parse(raw);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`graph file unreadable (${file}): ${lastErr instanceof Error ? lastErr.message : 'empty'}`);
+}
 
 export type NodeType = 'agent' | 'task';
 export type Status = 'running' | 'waiting' | 'done';
@@ -43,17 +73,13 @@ export class Store {
   static open(file: string): Store {
     const s = new Store(file);
     if (existsSync(file)) {
-      try {
-        const g = JSON.parse(readFileSync(file, 'utf8'));
-        s.nodes = g.nodes ?? [];
-        s.edges = g.edges ?? [];
-        s.seq = s.nodes.reduce(
-          (m, n) => Math.max(m, parseInt(String(n.id).split('-')[1] ?? '0', 10) || 0),
-          0,
-        );
-      } catch {
-        /* corrupt/partial — start empty */
-      }
+      const g = readGraphFile(file); // throws on unreadable — never silently empties
+      s.nodes = g.nodes ?? [];
+      s.edges = g.edges ?? [];
+      s.seq = s.nodes.reduce(
+        (m, n) => Math.max(m, parseInt(String(n.id).split('-')[1] ?? '0', 10) || 0),
+        0,
+      );
     }
     return s;
   }
@@ -104,8 +130,6 @@ export class Store {
   }
 
   persist() {
-    const dir = dirname(this.file);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(this.file, JSON.stringify({ nodes: this.nodes, edges: this.edges }, null, 2));
+    atomicWriteJSON(this.file, { nodes: this.nodes, edges: this.edges });
   }
 }

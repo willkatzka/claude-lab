@@ -15,7 +15,7 @@ import { getSessionMessages, query, tool, createSdkMcpServer, forkSession } from
 import { z } from 'zod';
 import { THEMES, DEFAULT_THEME } from '../src/themes.js';
 import { Lab } from '../src/orchestrator.js';
-import { Store } from '../src/store.js';
+import { Store, atomicWriteJSON, readGraphFile } from '../src/store.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Writable data dir (labs.json + graph files). The packaged app overrides this
@@ -33,10 +33,7 @@ const loadLabs = () => {
     return [];
   }
 };
-const saveLabs = (labs) => {
-  mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(LABS_FILE, JSON.stringify(labs, null, 2));
-};
+const saveLabs = (labs) => atomicWriteJSON(LABS_FILE, labs);
 const containerOf = (themeId) => THEMES[themeId]?.container ?? 'Lab';
 // The directory a lab's agents run in (its repo/folder); falls back to the app dir.
 const cwdFor = (lab) => (lab.cwd && existsSync(lab.cwd) ? lab.cwd : ROOT);
@@ -227,7 +224,7 @@ app.get('/api/labs/:id/graph', (req, res) => {
   const file = graphPath(lab);
   if (!existsSync(file)) return res.json({ nodes: [], edges: [] });
   try {
-    const g = JSON.parse(readFileSync(file, 'utf8'));
+    const g = readGraphFile(file);
     // Overlay live run-state: any node with an active turn reads 'running',
     // regardless of what the (race-prone) on-disk status says.
     for (const n of g.nodes ?? []) {
@@ -235,7 +232,8 @@ app.get('/api/labs/:id/graph', (req, res) => {
     }
     res.json(g);
   } catch {
-    // The file may be mid-write during a live run; treat as transiently empty.
+    // Couldn't read after retries — return empty for this poll (read-only; never
+    // written back), the next 2s poll picks up the real graph.
     res.json({ nodes: [], edges: [] });
   }
 });
@@ -259,9 +257,9 @@ app.delete('/api/labs/:id', (req, res) => {
 
 const loadGraph = (lab) => {
   const f = graphPath(lab);
-  return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : { nodes: [], edges: [] };
+  return existsSync(f) ? readGraphFile(f) : { nodes: [], edges: [] };
 };
-const saveGraph = (lab, g) => writeFileSync(graphPath(lab), JSON.stringify(g, null, 2));
+const saveGraph = (lab, g) => atomicWriteJSON(graphPath(lab), g);
 
 // Rename a lab.
 app.patch('/api/labs/:id', (req, res) => {
@@ -532,7 +530,7 @@ app.put('/api/settings', (req, res) => {
   const { defaultTheme, defaultPresets } = req.body ?? {};
   if (defaultTheme && THEMES[defaultTheme]) cur.defaultTheme = defaultTheme;
   if (Array.isArray(defaultPresets) && defaultPresets.length === 5) cur.defaultPresets = defaultPresets;
-  writeFileSync(SETTINGS_FILE, JSON.stringify(cur, null, 2));
+  atomicWriteJSON(SETTINGS_FILE, cur);
   res.json(cur);
 });
 
