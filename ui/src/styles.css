@@ -226,6 +226,9 @@ button, input, textarea, select, a, .react-flow__pane, .react-flow__node {
 .node:hover .term-btn { opacity: 1; }
 .term-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+/* Wrapper generates no box (display:contents) so the absolute edit button/popover
+   still anchor to the node; it only exists to scope click-outside detection. */
+.edit-wrap { display: contents; }
 /* Per-node Edit (pencil) — top-left, sibling to the terminal button. */
 .edit-btn {
   position: absolute; top: -10px; left: -10px; z-index: 6;

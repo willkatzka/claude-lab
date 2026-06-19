@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { GraphNode } from '../types';
 import { FolderIcon, LogIcon, TaskIcon } from './icons';
@@ -51,6 +51,20 @@ function SideHandles() {
   );
 }
 
+// Close a popover when the user clicks/drags anywhere outside it.
+function useClickOutside<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [open, onClose]);
+  return ref;
+}
+
 export interface NodeData {
   node: GraphNode;
   onSpawn?: (n: GraphNode) => void;
@@ -92,6 +106,7 @@ function PickerMenu({
     setNaming(null);
     setVal('');
   };
+  const wrapRef = useClickOutside<HTMLDivElement>(open, close);
   const submit = () => {
     const t = val.trim();
     if (!t || !naming) return;
@@ -99,7 +114,7 @@ function PickerMenu({
     close();
   };
   return (
-    <div className={`picker-wrap side-${side}`}>
+    <div className={`picker-wrap side-${side}`} ref={wrapRef}>
       <button
         className="spawn-btn"
         title="Add"
@@ -155,8 +170,9 @@ function EditControl({ node, onEdit }: { node: GraphNode; onEdit?: (id: string, 
   const [label, setLabel] = useState(isAgent ? node.name ?? '' : node.title);
   useEffect(() => setLabel(isAgent ? node.name ?? '' : node.title), [node.name, node.title, isAgent]);
   const saveLabel = () => onEdit?.(node.id, isAgent ? { name: label.trim() } : { title: label.trim() });
+  const wrapRef = useClickOutside<HTMLSpanElement>(open, () => setOpen(false));
   return (
-    <>
+    <span className="edit-wrap" ref={wrapRef}>
       <button className="edit-btn" title="Edit name & color" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
         ✎
       </button>
@@ -186,7 +202,7 @@ function EditControl({ node, onEdit }: { node: GraphNode; onEdit?: (id: string, 
           </div>
         </div>
       )}
-    </>
+    </span>
   );
 }
 
