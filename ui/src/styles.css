@@ -397,6 +397,14 @@ button, input, textarea, select, a, .react-flow__pane, .react-flow__node {
 
 /* Running output-token count next to the agent name while streaming */
 .msg-tokens { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Live "still working" status: elapsed + token count + a heartbeat dot. */
+.msg-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; flex: none; animation: live-pulse 1.4s ease-in-out infinite; }
+.live-dot.stale { background: #f59e0b; animation: none; }
+@keyframes live-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+/* The command currently executing (last activity row) gets a spinning marker. */
+.activity-running { color: var(--accent); display: inline-block; margin-left: 6px; animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Markdown-rendered assistant text (committed messages + live prose) */
 .msg.assistant .md { color: #cdd5e3; background: var(--panel-2); padding: 8px 11px; border-radius: 8px; }

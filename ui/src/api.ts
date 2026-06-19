@@ -159,6 +159,7 @@ export async function streamNodeMessage(
     onDelta: (text: string) => void;
     onTool?: (t: { tool: string; verb: string; detail: string; full: string }) => void;
     onUsage?: (output: number) => void;
+    onPing?: () => void;
     onPermission?: (p: { id: string; tool: string; verb: string; detail: string; full: string }) => void;
     onDone?: (d: { reply: string; sessionId: string; output: number }) => void;
     onError?: (err: string) => void;
@@ -205,6 +206,7 @@ export async function streamNodeMessage(
       else if (obj.type === 'tool')
         handlers.onTool?.({ tool: obj.tool ?? '', verb: obj.verb ?? 'Working', detail: obj.detail ?? '', full: obj.full ?? '' });
       else if (obj.type === 'usage') handlers.onUsage?.(obj.output ?? 0);
+      else if (obj.type === 'ping') handlers.onPing?.();
       else if (obj.type === 'permission')
         handlers.onPermission?.({ id: obj.id ?? '', tool: obj.tool ?? '', verb: obj.verb ?? 'use a tool', detail: obj.detail ?? '', full: obj.full ?? '' });
       else if (obj.type === 'done')

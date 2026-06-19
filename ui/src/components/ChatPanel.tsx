@@ -57,6 +57,9 @@ function ChatBlock({
   const [actNote, setActNote] = useState('');
   const [segs, setSegs] = useState<Seg[] | null>(null); // live stream (text + tool activity), or null
   const [tokens, setTokens] = useState(0); // running output-token count for the live turn
+  const [clock, setClock] = useState(0); // ticks every 1s while streaming (live elapsed)
+  const startRef = useRef(0); // turn start (ms)
+  const beatRef = useRef(0); // last activity/heartbeat (ms) — staleness detector
   const [suggest, setSuggest] = useState<Suggest | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -276,6 +279,15 @@ function ChatBlock({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [msgs, sending, segs]);
 
+  // Tick a 1s clock while a turn is streaming so the elapsed timer + staleness
+  // dot update live (no tokens — pure local timer).
+  const streaming = segs !== null;
+  useEffect(() => {
+    if (!streaming) return;
+    const id = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [streaming]);
+
   // Esc stops a running turn (the input is disabled mid-run, so listen globally).
   useEffect(() => {
     if (!running) return;
@@ -305,6 +317,10 @@ function ChatBlock({
     setTokens(0);
     setExpanded(new Set());
     setSuggest(null); // stale once a new turn starts
+    startRef.current = Date.now();
+    beatRef.current = Date.now();
+    setClock(Date.now());
+    const beat = () => { beatRef.current = Date.now(); };
     const acc: Seg[] = [];
     // Append a text delta to the trailing text segment (or start one).
     const pushText = (t: string) => {
@@ -315,16 +331,19 @@ function ChatBlock({
     };
     try {
       await streamNodeMessage(labId, node.id, text, {
-        onDelta: pushText,
+        onDelta: (t) => { beat(); pushText(t); },
         onTool: (t) => {
+          beat();
           acc.push({ kind: 'tool', verb: t.verb, detail: t.detail, full: t.full });
           setSegs([...acc]);
         },
         onPermission: (p) => {
+          beat();
           acc.push({ kind: 'perm', id: p.id, verb: p.verb, detail: p.detail, full: p.full });
           setSegs([...acc]);
         },
-        onUsage: (out) => setTokens(out),
+        onUsage: (out) => { beat(); setTokens(out); },
+        onPing: beat,
         onDone: (d) => d.output && setTokens(d.output),
         onError: (e) => pushText('\n\n⚠ ' + e),
       }, imgs.map((a) => ({ mediaType: a.mediaType, data: a.data })));
@@ -444,14 +463,26 @@ function ChatBlock({
           <div className="msg assistant">
             <div className="msg-head">
               <span className="msg-role">{agentName}</span>
-              {tokens > 0 && <span className="msg-tokens">{tokens.toLocaleString()} tokens</span>}
+              {(() => {
+                const sec = startRef.current ? Math.max(0, Math.floor((clock - startRef.current) / 1000)) : 0;
+                const stale = startRef.current > 0 && clock - beatRef.current > 18000;
+                const dur = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+                return (
+                  <span className="msg-status" title={stale ? 'No update for a while — long-running command, or the stream stalled' : 'Working — live'}>
+                    <span className={`live-dot${stale ? ' stale' : ''}`} />
+                    {stale ? 'no update ' : 'working '}
+                    {dur}
+                    {tokens > 0 ? ` · ${tokens.toLocaleString()} tok` : ''}
+                  </span>
+                );
+              })()}
             </div>
             {segs.length === 0 ? (
               <Thinking />
             ) : (
               segs.map((s, i) =>
                 s.kind === 'tool' ? (
-                  <div key={i} className="activity">
+                  <div key={i} className={`activity${i === segs.length - 1 ? ' running' : ''}`}>
                     <button
                       className="activity-row"
                       onClick={() => s.full && toggleExpand(i)}
@@ -460,6 +491,7 @@ function ChatBlock({
                       <span className="activity-chevron">{s.full ? (expanded.has(i) ? '▾' : '▸') : '·'}</span>
                       <span className="activity-verb">{s.verb}</span>
                       {s.detail && <span className="activity-detail">{s.detail}</span>}
+                      {i === segs.length - 1 && <span className="activity-running" title="still running">⟳</span>}
                     </button>
                     {expanded.has(i) && s.full && <pre className="activity-full">{s.full}</pre>}
                   </div>

@@ -1061,6 +1061,10 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
   runningStreams.set(streamKey, ac);
   activeRuns.add(streamKey);
   let stopped = false;
+  // Heartbeat: a tiny localhost ping every 6s while the turn runs, so the UI can
+  // tell "still alive, just on a long command" from "stream/agent died" (no Claude
+  // tokens — pure transport). Cleared when the turn ends.
+  const heartbeat = setInterval(() => send({ type: 'ping' }), 6000);
   // Permission prompt: for modes that ask, the SDK calls this before a gated
   // tool runs. We emit a {type:'permission'} line and park until the UI POSTs a
   // decision to /api/permission (or the run is stopped → auto-deny).
@@ -1143,6 +1147,7 @@ app.post('/api/labs/:labId/nodes/:nodeId/message/stream', async (req, res) => {
     if (ac.signal.aborted) stopped = true;
     else send({ type: 'error', error: String(e?.message ?? e) });
   }
+  clearInterval(heartbeat);
   runningStreams.delete(streamKey);
   activeRuns.delete(streamKey);
   // Deny any prompt still parked for this stream (the query has ended).
