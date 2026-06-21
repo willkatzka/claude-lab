@@ -1,24 +1,80 @@
 // Auto-layout the DAG with dagre so we never hand-place coordinates
 // (essential once recursion + shared nodes create multiple parents).
 import dagre from '@dagrejs/dagre';
-import type { Graph } from './types';
+import type { Graph, GraphNode, Edge } from './types';
 
 export const NODE_W = 220;
 export const NODE_H = 76;
 
+// Transform the real graph for rendering given its groups (folders): collapsed
+// groups hide their members behind one folder node; edges crossing a group
+// boundary reroute to/from the folder; expanded groups show the folder as the
+// parent of the members. The folder is always the group's single connection
+// point to the rest of the tree.
+export function applyGroups(graph: Graph): { nodes: GraphNode[]; edges: Edge[] } {
+  const groups = graph.groups ?? [];
+  if (!groups.length) return { nodes: graph.nodes, edges: graph.edges };
+  const exists = new Set(graph.nodes.map((n) => n.id));
+  const memberToGroup = new Map<string, (typeof groups)[number]>();
+  for (const grp of groups) for (const m of grp.members) if (exists.has(m)) memberToGroup.set(m, grp);
+
+  // hierarchy parent of each node (assigned/delegates edge into it)
+  const parentOf = new Map<string, string>();
+  for (const e of graph.edges) if (e.kind !== 'access') parentOf.set(e.to, e.from);
+
+  const nodes: GraphNode[] = [];
+  for (const n of graph.nodes) {
+    const grp = memberToGroup.get(n.id);
+    if (!grp || !grp.collapsed) nodes.push(n); // ungrouped, or expanded member
+  }
+  for (const grp of groups) {
+    nodes.push({ id: grp.id, type: 'group', title: grp.label, description: '', status: 'done', sessionId: null, collapsed: grp.collapsed, count: grp.members.length });
+  }
+
+  const seen = new Set<string>();
+  const edges: Edge[] = [];
+  const add = (from: string, to: string, kind: Edge['kind']) => {
+    if (from === to) return;
+    const k = `${from}|${to}|${kind}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    edges.push({ from, to, kind });
+  };
+  for (const e of graph.edges) {
+    const gf = memberToGroup.get(e.from);
+    const gt = memberToGroup.get(e.to);
+    if (gf && gt && gf.id === gt.id) {
+      if (!gf.collapsed) add(e.from, e.to, e.kind); // internal edge, only when expanded
+      continue;
+    }
+    add(gf ? gf.id : e.from, gt ? gt.id : e.to, e.kind); // map member endpoints to their folder
+  }
+  // Expanded groups: folder → each root member (members whose parent isn't in the group).
+  for (const grp of groups) {
+    if (grp.collapsed) continue;
+    for (const m of grp.members) {
+      if (!exists.has(m)) continue;
+      const p = parentOf.get(m);
+      if (!p || memberToGroup.get(p)?.id !== grp.id) add(grp.id, m, 'assigned');
+    }
+  }
+  return { nodes, edges };
+}
+
 export function layout(graph: Graph) {
+  const { nodes: tNodes, edges: tEdges } = applyGroups(graph);
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'TB', nodesep: 38, ranksep: 64 });
 
-  graph.nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
+  tNodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
   // Only hierarchy edges drive the layout. 'access' edges are manual cross-links
   // (a directory/log granted to an agent) — feeding them to dagre would distort
   // the tree, so they're rendered separately without affecting ranking.
-  graph.edges.filter((e) => e.kind !== 'access').forEach((e) => g.setEdge(e.from, e.to));
+  tEdges.filter((e) => e.kind !== 'access').forEach((e) => g.setEdge(e.from, e.to));
   dagre.layout(g);
 
-  const rfNodes = graph.nodes.map((n) => {
+  const rfNodes = tNodes.map((n) => {
     const p = g.node(n.id);
     return {
       id: n.id,
@@ -44,7 +100,7 @@ export function layout(graph: Graph) {
     return dx >= 0 ? { src: 'right', tgt: 'left' } : { src: 'left', tgt: 'right' };
   };
 
-  const rfEdges = graph.edges.map((e, i) => {
+  const rfEdges = tEdges.map((e, i) => {
     const { src, tgt } = facingSides(e.from, e.to);
     return {
       id: `e${i}-${e.kind}-${e.from}-${e.to}`,

@@ -12,10 +12,25 @@ import {
   type Connection,
 } from '@xyflow/react';
 import { layout, NODE_W, NODE_H } from '../layout';
-import { AgentNode, TaskNode, DirectoryNode, LogNode, type PickKind } from './nodes';
+import { AgentNode, TaskNode, DirectoryNode, LogNode, GroupNode, type PickKind } from './nodes';
 import { agentRole, type Graph, type GraphNode } from '../types';
 
-const nodeTypes = { agent: AgentNode, task: TaskNode, directory: DirectoryNode, log: LogNode };
+const nodeTypes = { agent: AgentNode, task: TaskNode, directory: DirectoryNode, log: LogNode, group: GroupNode };
+
+// All descendants of a node (incl itself) via hierarchy edges — the subtree that
+// collapses into a group when you drag this node into another.
+function subtreeOf(rootId: string, graph: Graph): string[] {
+  const out = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const e of graph.edges) if (e.kind !== 'access' && e.from === id && !out.has(e.to)) {
+      out.add(e.to);
+      stack.push(e.to);
+    }
+  }
+  return [...out];
+}
 
 type Side = 'top' | 'right' | 'bottom' | 'left';
 // Offset a child from its parent in the clicked direction (a comfortable gap).
@@ -69,6 +84,11 @@ export function Canvas({
   onEdit,
   onConnectGrant,
   onDisconnectGrant,
+  onCreateGroup,
+  onAddToGroup,
+  onToggleGroup,
+  onRenameGroup,
+  onUngroup,
   onNodeContextMenu,
   activeChatId,
   openChatIds,
@@ -83,6 +103,11 @@ export function Canvas({
   onEdit: (id: string, patch: { title?: string; name?: string; color?: string }) => void;
   onConnectGrant: (from: string, to: string) => void;
   onDisconnectGrant: (from: string, to: string) => void;
+  onCreateGroup: (members: string[]) => void;
+  onAddToGroup: (groupId: string, nodeIds: string[]) => void;
+  onToggleGroup: (id: string) => void;
+  onRenameGroup: (id: string, label: string) => void;
+  onUngroup: (id: string) => void;
   onNodeContextMenu: (n: GraphNode, x: number, y: number) => void;
   activeChatId: string | null;
   openChatIds: string[];
@@ -160,6 +185,9 @@ export function Canvas({
             onSetName,
             onPick: handlePick,
             onEdit,
+            onToggleGroup,
+            onRenameGroup,
+            onUngroup,
             roleLabel:
               (rn.data as { node: GraphNode }).node.type === 'agent'
                 ? agentRole((rn.data as { node: GraphNode }).node, graph.nodes)
@@ -172,7 +200,7 @@ export function Canvas({
       rfNodes.forEach((rn) => knownIds.current.add(rn.id));
       return next;
     });
-  }, [rfNodes, onSpawnSide, onTerminal, onRename, onSetName, handlePick, onEdit, graph.edges, graph.nodes, activeChatId, openChatIds]);
+  }, [rfNodes, onSpawnSide, onTerminal, onRename, onSetName, handlePick, onEdit, onToggleGroup, onRenameGroup, onUngroup, graph.edges, graph.nodes, activeChatId, openChatIds]);
 
   // Edge handles: the auto-laid tree uses bottom→top (stable, never flips). Only
   // manually-arranged nodes (dragged / directionally-spawned) and access grants
@@ -203,10 +231,30 @@ export function Canvas({
     [],
   );
 
-  // Once a node is dragged, pin it (its manual position wins over dagre).
-  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
-    draggedRef.current.add(node.id);
-  }, []);
+  // On drag-stop: pin the node. If it was dropped ONTO another node, group them —
+  // onto a group folder adds the dragged subtree; onto a task/agent makes a new
+  // group from both subtrees.
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: Node) => {
+      draggedRef.current.add(node.id);
+      const dType = (node.data as { node: GraphNode }).node.type;
+      if (dType === 'group' || dType === 'directory') return; // don't group the root/folders by drag
+      const dc = { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 };
+      // find a node whose box contains the dragged node's center (exclude self)
+      const target = nodes.find((m) => {
+        if (m.id === node.id) return false;
+        return dc.x >= m.position.x && dc.x <= m.position.x + NODE_W && dc.y >= m.position.y && dc.y <= m.position.y + NODE_H;
+      });
+      if (!target) return;
+      const tType = (target.data as { node: GraphNode }).node.type;
+      if (tType === 'group') {
+        onAddToGroup(target.id, subtreeOf(node.id, graph));
+      } else if (tType === 'task' || tType === 'agent') {
+        onCreateGroup([...new Set([...subtreeOf(node.id, graph), ...subtreeOf(target.id, graph)])]);
+      }
+    },
+    [nodes, graph, onAddToGroup, onCreateGroup],
+  );
 
   // Dragging a handle from a directory/log to an agent (or vice-versa) grants
   // access; the backend normalizes direction and validates the pair.

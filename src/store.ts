@@ -22,7 +22,7 @@ export function atomicWriteJSON(file: string, data: unknown): void {
 // Read + parse a graph file, retrying a few times on a transient parse failure
 // (e.g. a read that raced a non-atomic write). If it still won't parse, THROW —
 // callers must abort their mutation rather than overwrite good data with empty.
-export function readGraphFile(file: string): { nodes?: GraphNode[]; edges?: Edge[] } {
+export function readGraphFile(file: string): { nodes?: GraphNode[]; edges?: Edge[]; groups?: Group[] } {
   let lastErr: unknown;
   for (let i = 0; i < 4; i++) {
     try {
@@ -67,9 +67,19 @@ export interface Edge {
   kind: EdgeKind; // "delegates" (agent→task) | "assigned" (task→agent)
 }
 
+// A collapsible folder: a set of member node ids (nodes + their subtrees) shown
+// as one labeled node when collapsed, expanded back to the members when open.
+export interface Group {
+  id: string;
+  label: string;
+  collapsed: boolean;
+  members: string[]; // node ids contained in this group
+}
+
 export class Store {
   nodes: GraphNode[] = [];
   edges: Edge[] = [];
+  groups: Group[] = [];
   private seq = 0;
 
   constructor(private file = join(process.cwd(), 'data', 'graph.json')) {}
@@ -82,8 +92,9 @@ export class Store {
       const g = readGraphFile(file); // throws on unreadable — never silently empties
       s.nodes = g.nodes ?? [];
       s.edges = g.edges ?? [];
-      s.seq = s.nodes.reduce(
-        (m, n) => Math.max(m, parseInt(String(n.id).split('-')[1] ?? '0', 10) || 0),
+      s.groups = g.groups ?? [];
+      s.seq = [...s.nodes.map((n) => n.id), ...s.groups.map((gr) => gr.id)].reduce(
+        (m, id) => Math.max(m, parseInt(String(id).split('-')[1] ?? '0', 10) || 0),
         0,
       );
     }
@@ -145,6 +156,13 @@ export class Store {
     this.persist();
   }
 
+  addGroup(label: string, members: string[], collapsed = true): Group {
+    const g: Group = { id: this.id('group'), label, collapsed, members: [...new Set(members)] };
+    this.groups.push(g);
+    this.persist();
+    return g;
+  }
+
   get(id: string): GraphNode {
     const n = this.nodes.find((x) => x.id === id);
     if (!n) throw new Error(`no node ${id}`);
@@ -152,6 +170,6 @@ export class Store {
   }
 
   persist() {
-    atomicWriteJSON(this.file, { nodes: this.nodes, edges: this.edges });
+    atomicWriteJSON(this.file, { nodes: this.nodes, edges: this.edges, groups: this.groups });
   }
 }

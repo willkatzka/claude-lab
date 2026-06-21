@@ -1,7 +1,14 @@
 // Mirrors the orchestrator's store schema (the graph contract).
-export type NodeType = 'agent' | 'task' | 'directory' | 'log';
+export type NodeType = 'agent' | 'task' | 'directory' | 'log' | 'group';
 export type Status = 'running' | 'waiting' | 'done';
 export type EdgeKind = 'delegates' | 'assigned' | 'access';
+
+export interface Group {
+  id: string;
+  label: string;
+  collapsed: boolean;
+  members: string[];
+}
 
 export interface GraphNode {
   id: string;
@@ -19,6 +26,8 @@ export interface GraphNode {
   name?: string; // custom label shown after the role ("Role: Name")
   path?: string; // directory: folder path; log: markdown file path
   color?: string; // optional custom accent color (hex) for the node box
+  collapsed?: boolean; // group node: is it collapsed
+  count?: number; // group node: number of members
 }
 export interface Edge {
   from: string;
@@ -28,6 +37,7 @@ export interface Edge {
 export interface Graph {
   nodes: GraphNode[];
   edges: Edge[];
+  groups?: Group[];
 }
 export interface LabInfo {
   id: string;

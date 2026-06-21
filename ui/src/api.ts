@@ -76,6 +76,25 @@ export const disconnectNodes = (labId: string, from: string, to: string): Promis
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to }),
   }).then(j);
+// Collapsible groups (folders).
+export const createGroup = (labId: string, members: string[], label?: string): Promise<{ ok: boolean }> =>
+  fetch(`/api/labs/${labId}/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ members, label }),
+  }).then(j);
+export const updateGroup = (
+  labId: string,
+  gid: string,
+  patch: { label?: string; collapsed?: boolean; addMembers?: string[]; removeMembers?: string[] },
+): Promise<{ ok: boolean }> =>
+  fetch(`/api/labs/${labId}/groups/${gid}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).then(j);
+export const deleteGroup = (labId: string, gid: string): Promise<{ ok: boolean }> =>
+  fetch(`/api/labs/${labId}/groups/${gid}`, { method: 'DELETE' }).then(j);
 export const openInTerminal = (sessionId: string): Promise<{ opened: boolean }> =>
   fetch(`/api/sessions/${sessionId}/terminal`, { method: 'POST' }).then(j);
 

@@ -13,10 +13,13 @@ import { Thinking } from './components/Thinking';
 import {
   assignNode,
   connectNodes,
+  createGroup,
   delegateNode,
+  deleteGroup,
   deleteLab,
   deleteNode,
   disconnectNodes,
+  updateGroup,
   getGraph,
   getLabs,
   openInTerminal,
@@ -345,6 +348,40 @@ export default function App() {
     [labId, refreshGraph],
   );
 
+  // Groups (collapsible folders): create by dragging a handoff onto another,
+  // toggle collapse, rename, add a dropped subtree, or ungroup.
+  const onCreateGroup = useCallback(
+    (members: string[]) => {
+      if (labId && members.length) createGroup(labId, members, 'Group').then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+  const onAddToGroup = useCallback(
+    (groupId: string, nodeIds: string[]) => {
+      if (labId) updateGroup(labId, groupId, { addMembers: nodeIds }).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+  const onToggleGroup = useCallback(
+    (id: string) => {
+      const g = graph?.groups?.find((x) => x.id === id);
+      if (labId && g) updateGroup(labId, id, { collapsed: !g.collapsed }).then(refreshGraph).catch(() => {});
+    },
+    [labId, graph, refreshGraph],
+  );
+  const onRenameGroup = useCallback(
+    (id: string, label: string) => {
+      if (labId) updateGroup(labId, id, { label }).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+  const onUngroup = useCallback(
+    (id: string) => {
+      if (labId) deleteGroup(labId, id).then(refreshGraph).catch(() => {});
+    },
+    [labId, refreshGraph],
+  );
+
   // Open (or re-open) an agent's session in a terminal via `claude --resume`.
   const onTerminal = useCallback((n: GraphNode) => {
     if (n.sessionId && !n.sessionId.startsWith('mock-')) openInTerminal(n.sessionId);
@@ -453,6 +490,11 @@ export default function App() {
               onEdit={onEdit}
               onConnectGrant={onConnectGrant}
               onDisconnectGrant={onDisconnectGrant}
+              onCreateGroup={onCreateGroup}
+              onAddToGroup={onAddToGroup}
+              onToggleGroup={onToggleGroup}
+              onRenameGroup={onRenameGroup}
+              onUngroup={onUngroup}
               onNodeContextMenu={onNodeContextMenu}
               activeChatId={activeChatId}
               openChatIds={[pi?.id, ...subs.map((s) => s.id)].filter((x): x is string => !!x)}

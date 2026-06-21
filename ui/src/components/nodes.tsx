@@ -74,6 +74,9 @@ export interface NodeData {
   onSpawnSide?: (n: GraphNode, side: Side) => void; // spawn a sub-agent off the clicked side
   onPick?: (n: GraphNode, kind: PickKind, side: Side, name?: string) => void; // + picker
   onEdit?: (id: string, patch: { title?: string; name?: string; color?: string }) => void; // edit name/color
+  onToggleGroup?: (id: string) => void; // collapse/expand a group folder
+  onRenameGroup?: (id: string, label: string) => void;
+  onUngroup?: (id: string) => void;
   roleLabel?: string; // positional label ("Main Agent" / "Sub Agent 1a")
   chatActive?: boolean; // this agent's chat is the open main chat (green)
   chatOpen?: boolean; // this agent's chat is open as a secondary panel (blue)
@@ -383,6 +386,39 @@ export function DirectoryNode({ data }: { data: NodeData }) {
         <span className="role">{n.title}</span>
       </div>
       <div className="node-sub mono">{n.path || 'no folder set'}</div>
+    </div>
+  );
+}
+
+// A collapsible folder grouping a cluster of nodes. Click toggles collapse;
+// the ⊟ ungroups (members pop back out).
+export function GroupNode({ data }: { data: NodeData }) {
+  const n = data.node;
+  const collapsed = n.collapsed;
+  return (
+    <div
+      className={`node group${collapsed ? ' collapsed' : ''}`}
+      onClick={() => data.onToggleGroup?.(n.id)}
+      title={collapsed ? 'Click to expand this group' : 'Click to collapse this group'}
+      style={n.color ? { background: n.color } : undefined}
+    >
+      <SideHandles />
+      <button
+        className="group-ungroup"
+        title="Ungroup (pop members back out)"
+        onClick={(e) => {
+          e.stopPropagation();
+          data.onUngroup?.(n.id);
+        }}
+      >
+        ⊟
+      </button>
+      <div className="node-head">
+        <span className="group-chevron">{collapsed ? '▸' : '▾'}</span>
+        <EditableTitle node={n} onRename={data.onRenameGroup} className="role" />
+        {n.count != null && <span className="group-count">{n.count}</span>}
+      </div>
+      <div className="node-sub">{collapsed ? `${n.count} hidden` : 'group'}</div>
     </div>
   );
 }

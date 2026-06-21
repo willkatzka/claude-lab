@@ -403,6 +403,11 @@ app.delete('/api/labs/:id/nodes/:nodeId', (req, res) => {
   }
   g.nodes = g.nodes.filter((n) => !doomed.has(n.id));
   g.edges = g.edges.filter((e) => !doomed.has(e.from) && !doomed.has(e.to));
+  // Drop deleted nodes from any group, and remove now-empty groups.
+  if (g.groups) {
+    for (const grp of g.groups) grp.members = grp.members.filter((m) => !doomed.has(m));
+    g.groups = g.groups.filter((grp) => grp.members.length > 0);
+  }
   saveGraph(lab, g);
   res.json({ deleted: doomed.size });
 });
@@ -783,6 +788,65 @@ app.post('/api/labs/:id/disconnect', (req, res) => {
     );
     if (store.edges.length !== before) store.persist();
     res.json({ ok: true, removed: before - store.edges.length });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// ---- Collapsible groups (folders) ----
+// Create a group from a set of member node ids (the UI sends the full subtree).
+app.post('/api/labs/:id/groups', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  const members = Array.isArray(req.body?.members) ? req.body.members.filter((m) => typeof m === 'string') : [];
+  if (members.length < 1) return res.status(400).json({ error: 'members required' });
+  try {
+    const store = Store.open(graphPath(lab));
+    const valid = new Set(store.nodes.map((n) => n.id));
+    const inGroup = new Set(store.groups.flatMap((g) => g.members));
+    const clean = [...new Set(members)].filter((m) => valid.has(m) && !inGroup.has(m));
+    if (!clean.length) return res.status(400).json({ error: 'no ungrouped member nodes' });
+    const g = store.addGroup(String(req.body?.label || 'Group').slice(0, 60), clean, req.body?.collapsed !== false);
+    res.json({ ok: true, group: g });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Update a group: toggle collapsed, rename, add/remove a member.
+app.patch('/api/labs/:id/groups/:gid', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  try {
+    const g = loadGraph(lab);
+    const grp = (g.groups ?? []).find((x) => x.id === req.params.gid);
+    if (!grp) return res.status(404).json({ error: 'no such group' });
+    const { label, collapsed, addMembers, removeMembers } = req.body ?? {};
+    if (typeof label === 'string') grp.label = label.slice(0, 60);
+    if (typeof collapsed === 'boolean') grp.collapsed = collapsed;
+    for (const m of Array.isArray(addMembers) ? addMembers : []) {
+      // a node lives in only one group
+      for (const other of g.groups) if (other.id !== grp.id) other.members = other.members.filter((x) => x !== m);
+      if (!grp.members.includes(m)) grp.members.push(m);
+    }
+    for (const m of Array.isArray(removeMembers) ? removeMembers : []) grp.members = grp.members.filter((x) => x !== m);
+    g.groups = (g.groups ?? []).filter((x) => x.members.length > 0); // drop emptied groups
+    saveGraph(lab, g);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
+// Ungroup: remove the group (members pop back out).
+app.delete('/api/labs/:id/groups/:gid', (req, res) => {
+  const lab = loadLabs().find((l) => l.id === req.params.id);
+  if (!lab) return res.status(404).json({ error: 'no such lab' });
+  try {
+    const g = loadGraph(lab);
+    g.groups = (g.groups ?? []).filter((x) => x.id !== req.params.gid);
+    saveGraph(lab, g);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e?.message ?? e) });
   }

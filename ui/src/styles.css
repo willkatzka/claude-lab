@@ -296,6 +296,23 @@ button, input, textarea, select, a, .react-flow__pane, .react-flow__node {
 .node.directory .picker-wrap .spawn-btn { opacity: 1; } /* root: always show the picker */
 .node.directory .node-sub.mono { font-family: var(--mono); text-transform: none; font-size: 10.5px; opacity: 0.8; word-break: break-all; }
 .node.log { background: #1d241c; border-color: #3c4a34; }
+.node.group { background: #241f33; border-color: #4a3b6b; cursor: pointer; }
+.node.group.collapsed { border-style: solid; box-shadow: 3px 3px 0 -1px #241f33, 3px 3px 0 0 #4a3b6b; } /* stacked look */
+.node.group:hover { border-color: #6b5a9c; }
+.group-chevron { color: var(--accent); margin-right: 6px; font-size: 11px; }
+.group-count {
+  margin-left: 7px; font-size: 10.5px; color: var(--muted);
+  background: rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0 6px;
+}
+.group-ungroup {
+  position: absolute; top: -10px; left: -10px; z-index: 6;
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.1s ease;
+}
+.node.group:hover .group-ungroup { opacity: 1; }
+.group-ungroup:hover { border-color: #ef4444; color: #ef4444; }
 .dir-ico, .log-ico { display: inline-block; vertical-align: middle; margin-right: 7px; }
 
 /* The directory "+" typed picker popover (Agent / Log / …). */
