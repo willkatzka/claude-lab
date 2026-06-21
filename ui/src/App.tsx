@@ -352,9 +352,18 @@ export default function App() {
   // toggle collapse, rename, add a dropped subtree, or ungroup.
   const onCreateGroup = useCallback(
     (members: string[]) => {
-      if (labId && members.length) createGroup(labId, members, 'Group').then(refreshGraph).catch(() => {});
+      if (!labId || !members.length) return;
+      // Label from the grouped handoff (task) titles, e.g. "Cap Fix + Traded Flag".
+      const titles = members
+        .map((id) => graph?.nodes.find((n) => n.id === id))
+        .filter((n): n is GraphNode => !!n && n.type === 'task')
+        .map((n) => n.title);
+      const label = titles.length
+        ? titles.slice(0, 2).join(' + ') + (titles.length > 2 ? ` +${titles.length - 2}` : '')
+        : 'Group';
+      createGroup(labId, members, label.slice(0, 60)).then(refreshGraph).catch(() => {});
     },
-    [labId, refreshGraph],
+    [labId, graph, refreshGraph],
   );
   const onAddToGroup = useCallback(
     (groupId: string, nodeIds: string[]) => {

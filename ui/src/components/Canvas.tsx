@@ -236,22 +236,33 @@ export function Canvas({
   // group from both subtrees.
   const onNodeDragStop = useCallback(
     (_: unknown, node: Node) => {
-      draggedRef.current.add(node.id);
       const dType = (node.data as { node: GraphNode }).node.type;
-      if (dType === 'group' || dType === 'directory') return; // don't group the root/folders by drag
-      const dc = { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 };
-      // find a node whose box contains the dragged node's center (exclude self)
-      const target = nodes.find((m) => {
-        if (m.id === node.id) return false;
-        return dc.x >= m.position.x && dc.x <= m.position.x + NODE_W && dc.y >= m.position.y && dc.y <= m.position.y + NODE_H;
-      });
-      if (!target) return;
-      const tType = (target.data as { node: GraphNode }).node.type;
-      if (tType === 'group') {
-        onAddToGroup(target.id, subtreeOf(node.id, graph));
-      } else if (tType === 'task' || tType === 'agent') {
-        onCreateGroup([...new Set([...subtreeOf(node.id, graph), ...subtreeOf(target.id, graph)])]);
+      if (dType !== 'group' && dType !== 'directory') {
+        const dc = { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 };
+        // find a node whose box contains the dragged node's center (exclude self)
+        const target = nodes.find(
+          (m) => m.id !== node.id && dc.x >= m.position.x && dc.x <= m.position.x + NODE_W && dc.y >= m.position.y && dc.y <= m.position.y + NODE_H,
+        );
+        if (target) {
+          const tType = (target.data as { node: GraphNode }).node.type;
+          // Grouping: unpin the affected nodes so dagre lays the cluster out cleanly
+          // (don't leave them frozen at the drop spot).
+          const members =
+            tType === 'group'
+              ? subtreeOf(node.id, graph)
+              : tType === 'task' || tType === 'agent'
+                ? [...new Set([...subtreeOf(node.id, graph), ...subtreeOf(target.id, graph)])]
+                : null;
+          if (members) {
+            members.forEach((m) => draggedRef.current.delete(m));
+            draggedRef.current.delete(target.id);
+            if (tType === 'group') onAddToGroup(target.id, members);
+            else onCreateGroup(members);
+            return; // grouped → don't pin
+          }
+        }
       }
+      draggedRef.current.add(node.id); // plain drag → pin at the drop position
     },
     [nodes, graph, onAddToGroup, onCreateGroup],
   );
